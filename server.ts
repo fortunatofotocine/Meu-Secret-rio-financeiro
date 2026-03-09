@@ -29,6 +29,16 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Secretário Financeiro API is running" });
 });
 
+app.get("/api/debug-env", (req, res) => {
+  res.json({
+    hasUrl: !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
+    hasKey: !!(process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY),
+    hasGemini: !!process.env.GEMINI_API_KEY,
+    hasToken: !!process.env.WHATSAPP_VERIFY_TOKEN,
+    nodeEnv: process.env.NODE_ENV
+  });
+});
+
 // WhatsApp Webhook Verification (GET)
 app.get("/api/webhook/whatsapp", (req, res) => {
   const mode = req.query["hub.mode"];
