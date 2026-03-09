@@ -29,14 +29,38 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Secretário Financeiro API is running" });
 });
 
-app.get("/api/debug-env", (req, res) => {
+app.get("/api/debug-env", async (req, res) => {
+  let dbTest = "not tested";
+  try {
+    const { data, error } = await supabase.from("system_logs").select("id").limit(1);
+    dbTest = error ? `Error: ${error.message}` : "Success";
+  } catch (err: any) {
+    dbTest = `Exception: ${err.message}`;
+  }
+
   res.json({
     hasUrl: !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
     hasKey: !!(process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY),
     hasGemini: !!process.env.GEMINI_API_KEY,
     hasToken: !!process.env.WHATSAPP_VERIFY_TOKEN,
+    dbTest,
     nodeEnv: process.env.NODE_ENV
   });
+});
+
+app.get("/api/debug-logs", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("system_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // WhatsApp Webhook Verification (GET)
@@ -66,12 +90,22 @@ app.get("/api/webhook/whatsapp", (req, res) => {
 // WhatsApp Webhook Receiver (POST)
 app.post("/api/webhook/whatsapp", async (req, res) => {
   console.log("--- WhatsApp Webhook Received (POST) ---");
-  console.log(JSON.stringify(req.body, null, 2));
-
-  // Responder imediatamente com 200 OK e JSON conforme solicitado
-  res.status(200).json({ status: "success" });
-
   const body = req.body;
+
+  // Log raw payload to system_logs for debugging
+  try {
+    await supabase.from("system_logs").insert([
+      {
+        event_type: "whatsapp_webhook_received",
+        payload: body
+      }
+    ]);
+  } catch (logErr) {
+    console.error("Error logging to system_logs:", logErr);
+  }
+
+  // Responder imediatamente com 200 OK
+  res.status(200).json({ status: "success" });
 
   if (body.object === "whatsapp_business_account") {
     try {
@@ -88,12 +122,26 @@ app.post("/api/webhook/whatsapp", async (req, res) => {
         console.log(`Processing message from ${from}: ${msgBody}`);
 
         // Processamento assíncrono
-        processWhatsAppMessage(from, msgBody, msgId, body).catch(err => {
+        processWhatsAppMessage(from, msgBody, msgId, body).catch(async err => {
           console.error("Error processing message:", err);
+          await supabase.from("system_logs").insert([
+            {
+              event_type: "whatsapp_processing_error",
+              payload: { msgId, from, error: err.message },
+              error_message: err.stack
+            }
+          ]);
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error parsing webhook body:", err);
+      await supabase.from("system_logs").insert([
+        {
+          event_type: "whatsapp_parse_error",
+          payload: body,
+          error_message: err.message
+        }
+      ]);
     }
   }
 });
