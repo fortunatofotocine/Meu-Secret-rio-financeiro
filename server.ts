@@ -140,115 +140,143 @@ app.post("/api/webhook/whatsapp", async (req, res) => {
 });
 
 async function processWhatsAppMessage(from: string, msgBody: string, msgId: string, rawData: any) {
-  // Log message to Supabase
-  const { data: logData, error: logError } = await supabase
-    .from("whatsapp_messages")
-    .insert([
-      {
-        whatsapp_id: msgId,
-        sender_number: from,
-        message_text: msgBody,
-        raw_data: rawData,
-        status: "received",
-      },
-    ])
-    .select();
+  const phone_number_id = rawData.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
 
-  if (logError) {
-    console.error("Erro ao logar mensagem no Supabase:", logError);
-    return;
-  }
+  try {
+    // 1. Log to system_logs that processing started
+    await supabase.from("system_logs").insert([{
+      event_type: "processing_start",
+      payload: { from, msgBody, msgId, phone_number_id }
+    }]);
 
-  // Interpret message using AI
-  if (msgBody) {
-    try {
+    // 2. Insert into whatsapp_messages
+    const { data: logData, error: logError } = await supabase
+      .from("whatsapp_messages")
+      .insert([
+        {
+          whatsapp_id: msgId,
+          sender_number: from,
+          message_text: msgBody,
+          raw_data: rawData,
+          status: "received",
+        },
+      ])
+      .select();
+
+    if (logError) {
+      await supabase.from("system_logs").insert([{
+        event_type: "db_error_messages",
+        payload: { error: logError, msgId }
+      }]);
+      console.error("Erro ao logar mensagem no Supabase:", logError);
+      return;
+    }
+
+    const internalMessageId = logData?.[0]?.id;
+
+    // 3. Interpret message using AI
+    if (msgBody) {
       const interpretation = await interpretMessage(msgBody);
-      console.log("Interpretação da IA:", interpretation);
+
+      await supabase.from("system_logs").insert([{
+        event_type: "ai_interpretation",
+        payload: { interpretation, msgId }
+      }]);
+
+      let responseText = "Entendido!";
 
       if (interpretation.confidence > 0.7) {
         if (interpretation.type === "finance") {
-          await supabase.from("transactions").insert([
+          const { error: transError } = await supabase.from("transactions").insert([
             {
               description: interpretation.data.description,
               amount: interpretation.data.amount,
               type: interpretation.data.type,
               category: interpretation.data.category,
               date: interpretation.data.date || new Date().toISOString(),
-              whatsapp_message_id: logData?.[0]?.id
+              whatsapp_message_id: internalMessageId
             }
           ]);
-          console.log("Transação salva automaticamente.");
+
+          if (transError) {
+            await supabase.from("system_logs").insert([{
+              event_type: "db_error_transaction",
+              payload: { error: transError, msgId }
+            }]);
+          } else {
+            responseText = `✅ *Lançamento efetuado!*\n📝 ${interpretation.data.description}\n💰 R$ ${interpretation.data.amount}\n📂 ${interpretation.data.category}`;
+          }
         } else if (interpretation.type === "event") {
-          await supabase.from("events").insert([
+          const { error: eventError } = await supabase.from("events").insert([
             {
               title: interpretation.data.title,
               description: interpretation.data.description,
               start_time: interpretation.data.start_time,
               end_time: interpretation.data.end_time,
-              whatsapp_message_id: logData?.[0]?.id
+              whatsapp_message_id: internalMessageId
             }
           ]);
-          console.log("Evento salvo automaticamente.");
+
+          if (eventError) {
+            await supabase.from("system_logs").insert([{
+              event_type: "db_error_event",
+              payload: { error: eventError, msgId }
+            }]);
+          } else {
+            responseText = `📅 *Compromisso agendado!*\n📌 ${interpretation.data.title}\n⏰ ${new Date(interpretation.data.start_time).toLocaleString('pt-BR')}`;
+          }
         }
       } else {
-        // Baixa confiança - marcar para revisão
         await supabase.from("whatsapp_messages").update({
           status: "pending_confirmation",
           interpretation: interpretation
-        }).eq("id", logData?.[0]?.id);
-        console.log("Mensagem marcada para confirmação (baixa confiança).");
+        }).eq("id", internalMessageId);
+        responseText = "🤔 Fiquei na dúvida sobre esse lançamento. Pode conferir no painel?";
       }
-    } catch (error) {
-      console.error("Erro na interpretação da IA:", error);
-      await supabase.from("whatsapp_messages").update({
-        status: "error"
-      }).eq("id", logData?.[0]?.id);
+
+      // 4. Send reply back to WhatsApp
+      await sendWhatsAppMessage(from, responseText, phone_number_id);
     }
+  } catch (error: any) {
+    console.error("Erro geral no processamento:", error);
+    await supabase.from("system_logs").insert([{
+      event_type: "critical_processing_error",
+      payload: { error: error.message, stack: error.stack, msgId }
+    }]);
   }
 }
 
-// Manual Confirmation Endpoint
-app.post("/api/messages/confirm", async (req, res) => {
-  const { messageId, interpretation } = req.body;
-
-  if (!messageId || !interpretation) {
-    return res.status(400).json({ error: "Missing parameters" });
+async function sendWhatsAppMessage(to: string, text: string, phone_number_id: string) {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!token || !phone_number_id) {
+    console.error("WHATSAPP_ACCESS_TOKEN or phone_number_id missing");
+    return;
   }
 
   try {
-    if (interpretation.type === "finance") {
-      await supabase.from("transactions").insert([
-        {
-          description: interpretation.data.description,
-          amount: interpretation.data.amount,
-          type: interpretation.data.type,
-          category: interpretation.data.category,
-          date: interpretation.data.date || new Date().toISOString(),
-          whatsapp_message_id: messageId
-        }
-      ]);
-    } else if (interpretation.type === "event") {
-      await supabase.from("events").insert([
-        {
-          title: interpretation.data.title,
-          description: interpretation.data.description,
-          start_time: interpretation.data.start_time,
-          end_time: interpretation.data.end_time,
-          whatsapp_message_id: messageId
-        }
-      ]);
-    }
+    const response = await fetch(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: to,
+        type: "text",
+        text: { body: text },
+      }),
+    });
 
-    await supabase.from("whatsapp_messages").update({
-      status: "processed"
-    }).eq("id", messageId);
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Error confirming message:", error);
-    res.status(500).json({ error: "Internal server error" });
+    const result = await response.json();
+    await supabase.from("system_logs").insert([{
+      event_type: "whatsapp_reply_sent",
+      payload: { to, text, result }
+    }]);
+  } catch (err: any) {
+    console.error("Error sending WhatsApp message:", err);
   }
-});
+}
 
 // AI Interpretation Logic
 async function interpretMessage(text: string) {
