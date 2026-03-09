@@ -104,9 +104,6 @@ app.post("/api/webhook/whatsapp", async (req, res) => {
     console.error("Error logging to system_logs:", logErr);
   }
 
-  // Responder imediatamente com 200 OK
-  res.status(200).json({ status: "success" });
-
   if (body.object === "whatsapp_business_account") {
     try {
       const entry = body.entry?.[0];
@@ -121,18 +118,11 @@ app.post("/api/webhook/whatsapp", async (req, res) => {
 
         console.log(`Processing message from ${from}: ${msgBody}`);
 
-        // Processamento assíncrono
-        processWhatsAppMessage(from, msgBody, msgId, body).catch(async err => {
-          console.error("Error processing message:", err);
-          await supabase.from("system_logs").insert([
-            {
-              event_type: "whatsapp_processing_error",
-              payload: { msgId, from, error: err.message },
-              error_message: err.stack
-            }
-          ]);
-        });
+        // Await processing to ensure Vercel doesn't terminate the function early
+        await processWhatsAppMessage(from, msgBody, msgId, body);
       }
+
+      return res.status(200).json({ status: "success" });
     } catch (err: any) {
       console.error("Error parsing webhook body:", err);
       await supabase.from("system_logs").insert([
@@ -142,8 +132,11 @@ app.post("/api/webhook/whatsapp", async (req, res) => {
           error_message: err.message
         }
       ]);
+      return res.status(200).json({ status: "success" }); // Still return 200 to WhatsApp
     }
   }
+
+  res.status(200).json({ status: "success" });
 });
 
 async function processWhatsAppMessage(from: string, msgBody: string, msgId: string, rawData: any) {
