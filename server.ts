@@ -201,7 +201,8 @@ app.post("/api/messages/confirm", async (req, res) => {
 
 // AI Interpretation Logic
 async function interpretMessage(text: string) {
-  const model = "gemini-1.5-flash";
+  const modelName = "gemini-1.5-flash";
+  const model = genAI.getGenerativeModel({ model: modelName });
 
   const prompt = `Você é um secretário financeiro de alta precisão. Sua tarefa é extrair dados de uma mensagem em português.
   Mensagem: "${text}"
@@ -225,10 +226,9 @@ async function interpretMessage(text: string) {
     "data": { ... }
   }`;
 
-  const response = await genAI.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
+  const result = await model.generateContent({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: {
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -242,7 +242,7 @@ async function interpretMessage(text: string) {
     }
   });
 
-  return JSON.parse(response.text);
+  return JSON.parse(result.response.text());
 }
 
 // Export app for Vercel
