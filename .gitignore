@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.vercel
+*.log
+webhook_verification_log.json
+/tmp
+.agents
+.agent
+_agents
+_agent
+.gemini
