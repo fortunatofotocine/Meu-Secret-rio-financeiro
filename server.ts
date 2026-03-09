@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import * as dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
@@ -14,7 +13,12 @@ app.use(express.json());
 // Supabase Client
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseKey);
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error("CRITICAL: Supabase environment variables are missing!");
+}
+
+const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", supabaseKey || "placeholder");
 
 // Gemini AI Setup
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
@@ -25,10 +29,6 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Secretário Financeiro API is running" });
 });
 
-import * as fs from "fs";
-
-// ... (rest of imports)
-
 // WhatsApp Webhook Verification (GET)
 app.get("/api/webhook/whatsapp", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -36,18 +36,6 @@ app.get("/api/webhook/whatsapp", (req, res) => {
   const challenge = req.query["hub.challenge"];
 
   const verifyToken = (process.env.WHATSAPP_VERIFY_TOKEN || "meu_whatsapp_secretario_token").trim();
-
-  const logData = {
-    timestamp: new Date().toISOString(),
-    mode,
-    receivedToken: token,
-    expectedToken: verifyToken,
-    challenge,
-    match: token === verifyToken
-  };
-
-  // Log to file for AI to see
-  fs.appendFileSync("./webhook_verification_log.json", JSON.stringify(logData) + "\n");
 
   console.log("--- WhatsApp Webhook Verification (GET) ---");
   console.log("Mode:", mode);
@@ -263,6 +251,7 @@ export default app;
 // Only run standalone server if not on Vercel
 if (process.env.NODE_ENV !== "production") {
   async function setupVite() {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
