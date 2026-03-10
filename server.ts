@@ -176,66 +176,76 @@ async function processWhatsAppMessage(from: string, msgBody: string, msgId: stri
 
     // 3. Interpret message using AI
     if (msgBody) {
-      const interpretation = await interpretMessage(msgBody);
+      try {
+        const interpretation = await interpretMessage(msgBody);
 
-      await supabase.from("system_logs").insert([{
-        event_type: "ai_interpretation",
-        payload: { interpretation, msgId }
-      }]);
+        await supabase.from("system_logs").insert([{
+          event_type: "ai_interpretation",
+          payload: { interpretation, msgId }
+        }]);
 
-      let responseText = "Entendido!";
+        let responseText = "Entendido!";
 
-      if (interpretation.confidence > 0.7) {
-        if (interpretation.type === "finance") {
-          const { error: transError } = await supabase.from("transactions").insert([
-            {
-              description: interpretation.data.description,
-              amount: interpretation.data.amount,
-              type: interpretation.data.type,
-              category: interpretation.data.category,
-              date: interpretation.data.date || new Date().toISOString(),
-              whatsapp_message_id: internalMessageId
+        if (interpretation.confidence > 0.7) {
+          if (interpretation.type === "finance") {
+            const { error: transError } = await supabase.from("transactions").insert([
+              {
+                description: interpretation.data.description,
+                amount: interpretation.data.amount,
+                type: interpretation.data.type,
+                category: interpretation.data.category,
+                date: interpretation.data.date || new Date().toISOString(),
+                whatsapp_message_id: internalMessageId
+              }
+            ]);
+
+            if (transError) {
+              await supabase.from("system_logs").insert([{
+                event_type: "db_error_transaction",
+                payload: { error: transError, msgId }
+              }]);
+              await supabase.from("whatsapp_messages").update({ status: "error" }).eq("id", internalMessageId);
+            } else {
+              await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("id", internalMessageId);
+              responseText = `✅ *Lançamento efetuado!*\n📝 ${interpretation.data.description}\n💰 R$ ${interpretation.data.amount}\n📂 ${interpretation.data.category}`;
             }
-          ]);
+          } else if (interpretation.type === "event") {
+            const { error: eventError } = await supabase.from("events").insert([
+              {
+                title: interpretation.data.title,
+                description: interpretation.data.description,
+                start_time: interpretation.data.start_time,
+                end_time: interpretation.data.end_time,
+                whatsapp_message_id: internalMessageId
+              }
+            ]);
 
-          if (transError) {
-            await supabase.from("system_logs").insert([{
-              event_type: "db_error_transaction",
-              payload: { error: transError, msgId }
-            }]);
-          } else {
-            responseText = `✅ *Lançamento efetuado!*\n📝 ${interpretation.data.description}\n💰 R$ ${interpretation.data.amount}\n📂 ${interpretation.data.category}`;
-          }
-        } else if (interpretation.type === "event") {
-          const { error: eventError } = await supabase.from("events").insert([
-            {
-              title: interpretation.data.title,
-              description: interpretation.data.description,
-              start_time: interpretation.data.start_time,
-              end_time: interpretation.data.end_time,
-              whatsapp_message_id: internalMessageId
+            if (eventError) {
+              await supabase.from("system_logs").insert([{
+                event_type: "db_error_event",
+                payload: { error: eventError, msgId }
+              }]);
+              await supabase.from("whatsapp_messages").update({ status: "error" }).eq("id", internalMessageId);
+            } else {
+              await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("id", internalMessageId);
+              responseText = `📅 *Compromisso agendado!*\n📌 ${interpretation.data.title}\n⏰ ${new Date(interpretation.data.start_time).toLocaleString('pt-BR')}`;
             }
-          ]);
-
-          if (eventError) {
-            await supabase.from("system_logs").insert([{
-              event_type: "db_error_event",
-              payload: { error: eventError, msgId }
-            }]);
-          } else {
-            responseText = `📅 *Compromisso agendado!*\n📌 ${interpretation.data.title}\n⏰ ${new Date(interpretation.data.start_time).toLocaleString('pt-BR')}`;
           }
+        } else {
+          await supabase.from("whatsapp_messages").update({
+            status: "pending_confirmation",
+            interpretation: interpretation
+          }).eq("id", internalMessageId);
+          responseText = "🤔 Fiquei na dúvida sobre esse lançamento. Pode conferir no painel?";
         }
-      } else {
-        await supabase.from("whatsapp_messages").update({
-          status: "pending_confirmation",
-          interpretation: interpretation
-        }).eq("id", internalMessageId);
-        responseText = "🤔 Fiquei na dúvida sobre esse lançamento. Pode conferir no painel?";
-      }
 
-      // 4. Send reply back to WhatsApp
-      await sendWhatsAppMessage(from, responseText, phone_number_id);
+        // 4. Send reply back to WhatsApp
+        await sendWhatsAppMessage(from, responseText, phone_number_id);
+      } catch (aiError: any) {
+        console.error("Erro na interpretação/salvamento:", aiError);
+        await supabase.from("whatsapp_messages").update({ status: "error" }).eq("id", internalMessageId);
+        throw aiError; // Re-throw to be caught by the outer catch
+      }
     }
   } catch (error: any) {
     console.error("Erro geral no processamento:", error);
@@ -280,7 +290,7 @@ async function sendWhatsAppMessage(to: string, text: string, phone_number_id: st
 
 // AI Interpretation Logic
 async function interpretMessage(text: string) {
-  const modelName = "gemini-2.0-flash";
+  const modelName = "gemini-2.0-flash-lite";
   console.log(`Using model: ${modelName} to interpret: ${text}`);
   const model = genAI.getGenerativeModel({ model: modelName });
 
