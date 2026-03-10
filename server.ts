@@ -277,7 +277,7 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
   let interpretation = { type: intent, data: extraction.data, confidence: extraction.full ? 1.0 : 0.5 };
 
   // Layer 3: AI Fallback / Refinement / Audio Transcription
-  if (!extraction.full || needsBeautifying || text.startsWith("[AUDIO_MESSAGE_ID:")) {
+  if (!extraction.full || needsBeautifying || text.includes("[AUDIO_MESSAGE_ID:")) {
     console.log(`[V2] ${needsBeautifying ? 'Beautifying title/desc...' : 'Chamando IA Fallback/Audio...'}`);
 
     let audioData: { data: string, mimeType: string } | undefined = undefined;
@@ -285,7 +285,11 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
 
     if (audioMatch) {
       const mediaId = audioMatch[1];
+      console.log(`[Audio] Baixando mídia ID: ${mediaId}`);
       audioData = await downloadWhatsAppMedia(mediaId);
+      if (!audioData) {
+        console.error(`[Audio] Falha ao baixar mídia ID: ${mediaId}. Token presente: ${!!process.env.WHATSAPP_ACCESS_TOKEN}`);
+      }
     }
 
     const aiResult = await interpretMessage(text, intent, currentDateTime, audioData);
@@ -297,9 +301,10 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
       data: {
         ...aiResult.data,
         amount: extraction.data.amount || aiResult.data.amount,
-        type: extraction.data.type || aiResult.data.type,
+        type: (extraction.data.type === 'income' ? 'income' : aiResult.data.type) || 'expense',
         date: extraction.data.date || aiResult.data.date,
         start_time: extraction.data.start_time || aiResult.data.start_time,
+        isUpdate: extraction.data.isUpdate || aiResult.data.isUpdate,
       }
     };
   }
@@ -400,11 +405,15 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
 // Layer 2: Deep Structured Parser
 function extractStructuredData(text: string, currentDateTime: string, intent: string = "unknown") {
   const data: any = {};
-  const lowerText = text.toLowerCase();
+
+  // IGNORE AUDIO TAGS for extraction
+  const cleanTextForParsing = text.replace(/\[AUDIO_MESSAGE_ID:[^\]]+\]/g, '');
+  const lowerText = cleanTextForParsing.toLowerCase();
 
   // 1. Value Extraction (R$ 10, 10 reais, 10.50)
-  // Improved to ensure we catch numbers only preceded/followed by currency markers
-  const valueMatch = text.match(/(?:r\$\s*|reais\s*)?(\d+(?:[.,]\d+)?)(?:\s*reais|\s*r\$)?/i);
+  const valueMatch = cleanTextForParsing.match(/(?:r\$\s*|reais\s*)?(\d+(?:[.,]\d+)?)(?:\s*reais|\s*r\$)/i)
+    || cleanTextForParsing.match(/(?:gastei|paguei|recebi|valor)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)/i);
+
   if (valueMatch) data.amount = parseFloat(valueMatch[1].replace(',', '.'));
 
   // 2. Date Extraction (hoje, ontem, amanhã, anteontem)
@@ -432,24 +441,20 @@ function extractStructuredData(text: string, currentDateTime: string, intent: st
   data.date = baseDate.toISOString();
   data.start_time = baseDate.toISOString();
 
-  // 4. Description Extraction (Cleaning) - SMARTER APPROACH
-  // Instead of broad regex, we target only the exact words that are clearly "commands" or dates/times we found
+  // 4. Description Extraction (Cleaning) - MUCH MORE CONSERVATIVE
   let cleanDesc = text
+    .replace(/\[AUDIO_MESSAGE_ID:[^\]]+\]/g, '')
     .replace(/(?:gastei|paguei|recebi|recebimento|comprei|agendar|marcar|agenda|reunião|compromisso|lembrete|visita|anotar|anota|obs|mude|alterar|altere|mudar|trocar|troque)\s+/gi, '')
-    .replace(/(?:r\$\s*)?\d+(?:[.,]\d+)?(?:\s*reais)?/gi, '')
     .replace(/(?:hoje|ontem|amanhã|amanha|anteontem|agora|já)/gi, '')
-    // Only remove very specific date patterns like 00/00/0000
     .replace(/\d{1,2}\/\d{1,2}(?:\/\d{2,4})?/g, '')
-    // Remove "at" prepositions followed by time
-    .replace(/(?:as|às|no|na|pelo|pela|em|com|do|da|de|p\s+)\s*\d{1,2}(?::\d{2})?\s*(?:h|horas?|da noite|da manhã|da tarde)/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Remove common connector words at start (Brazilian Portuguese)
-  cleanDesc = cleanDesc.replace(/^(com|de|em|no|na|pelo|pela|num|numa|do|da|para|pra)\s+/i, '');
+  // If the cleaning removed too much or it's an event, we prefer the original (minus commands)
+  if (cleanDesc.length < 3) cleanDesc = text.replace(/\[AUDIO_MESSAGE_ID:[^\]]+\]/g, '').trim();
 
-  data.description = cleanDesc || (intent === 'finance' ? "Gasto sem nome" : "Compromisso");
-  data.title = cleanDesc || "Compromisso";
+  data.description = cleanDesc;
+  data.title = cleanDesc;
 
   // Reliability Check
   const hasFinance = !!(data.amount && cleanDesc.length > 2);
@@ -500,16 +505,29 @@ async function downloadWhatsAppMedia(mediaId: string): Promise<{ data: string, m
 }
 
 // AI Interpretation Logic
-// Update Logic Helper (v2.3)
+// Update Logic Helper (v2.4) - Robust Filtering by Sender
 async function updateLastRecord(from: string, interpretation: any) {
   const { type, data } = interpretation;
-  const table = type === 'finance' ? 'transactions' : (type === 'event' ? 'events' : 'notes');
+  const table = interpretation.type === 'finance' ? 'transactions' : (interpretation.type === 'event' ? 'events' : 'notes');
 
-  // Find last record from this sender
+  // 1. Find the last message from this user that wasn't an "unknown" or "error"
+  const { data: lastMsgs, error: msgError } = await supabase
+    .from("whatsapp_messages")
+    .select("id")
+    .eq("sender_number", from)
+    .neq("status", "error")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (msgError || !lastMsgs || lastMsgs.length === 0) return { success: false };
+
+  // 2. Look for the record in the target table associated with any of those messages
+  const msgIds = lastMsgs.map((m: any) => m.id);
   const { data: records, error: fetchError } = await supabase
     .from(table)
-    .select('*')
-    .order('created_at', { ascending: false })
+    .select("*")
+    .in("whatsapp_message_id", msgIds)
+    .order("created_at", { ascending: false })
     .limit(1);
 
   if (fetchError || !records || records.length === 0) return { success: false };
@@ -517,13 +535,16 @@ async function updateLastRecord(from: string, interpretation: any) {
   const lastRecord = records[0];
   const updates: any = {};
 
-  if (type === 'finance') {
+  if (interpretation.type === 'finance') {
     if (data.amount) updates.amount = data.amount;
-    if (data.description && data.description !== "Gasto sem nome") updates.description = data.description;
+    if (data.description && !data.description.includes("Gasto sem nome")) updates.description = data.description;
     if (data.date) updates.date = data.date;
-  } else if (type === 'event') {
-    if (data.title && data.title !== "Compromisso") updates.title = data.title;
+    if (data.type) updates.type = data.type;
+  } else if (interpretation.type === 'event') {
+    if (data.title && !data.title.includes("Compromisso")) updates.title = data.title;
     if (data.start_time) updates.start_time = data.start_time;
+  } else if (interpretation.type === 'note') {
+    if (data.description) updates.content = data.description;
   }
 
   const { error: updateError } = await supabase
@@ -531,10 +552,13 @@ async function updateLastRecord(from: string, interpretation: any) {
     .update(updates)
     .eq('id', lastRecord.id);
 
-  if (updateError) return { success: false };
+  if (updateError) {
+    console.error(`[Update] Falha ao atualizar ${table}:`, updateError);
+    return { success: false };
+  }
 
-  const desc = type === 'finance' ? `R$ ${updates.amount || lastRecord.amount} - ${updates.description || lastRecord.description}` : (updates.title || lastRecord.title);
-  return { success: true, message: desc };
+  const resDesc = interpretation.type === 'finance' ? `R$ ${updates.amount || lastRecord.amount} - ${updates.description || lastRecord.description}` : (updates.title || updates.content || lastRecord.title || lastRecord.content);
+  return { success: true, message: resDesc };
 }
 
 async function interpretMessage(text: string, suggestedIntent: string = "unknown", currentDateTime: string, audioData?: { data: string, mimeType: string }) {
