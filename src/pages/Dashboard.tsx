@@ -22,17 +22,15 @@ export default function Dashboard() {
   async function fetchData() {
     setLoading(true);
     const now = new Date();
-    const start = startOfMonth(now).toISOString();
-    const end = endOfMonth(now).toISOString();
 
     const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
 
     const [transRes, eventsRes, profileRes] = await Promise.all([
+      // Fetch ALL transactions for this user
       supabase.from('transactions')
         .select('*')
         .eq('user_id', session.user.id)
-        .gte('date', start)
-        .lte('date', end)
         .order('date', { ascending: false }),
       supabase.from('events')
         .select('*')
@@ -40,7 +38,7 @@ export default function Dashboard() {
         .gte('start_time', now.toISOString())
         .order('start_time', { ascending: true })
         .limit(5),
-      session ? supabase.from('profiles').select('*').eq('id', session.user.id).single() : Promise.resolve({ data: null })
+      supabase.from('profiles').select('*').eq('id', session.user.id).single()
     ]);
 
     if (transRes.data) setTransactions(transRes.data);
@@ -68,15 +66,30 @@ export default function Dashboard() {
     }
   }
 
-  const incomeFromTransactions = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
-  const expenses = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+  const now = new Date();
+  const start = startOfMonth(now);
+  const end = endOfMonth(now);
 
-  // O salário mensal definido pelo usuário + rendas extras lançadas
+  // Filtrar para estatísticas mensais
+  const monthlyTransactions = transactions.filter(t => {
+    const d = new Date(t.date);
+    return d >= start && d <= end;
+  });
+
+  const incomeFromTransactions = monthlyTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+  const expenses = monthlyTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+
+  // Saldo Geral (Histórico Total)
+  const allTimeIncome = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+  const allTimeExpenses = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+  const historicalBalance = (profile?.monthly_income || 0) + allTimeIncome - allTimeExpenses;
+
+  // O salário mensal definido pelo usuário + rendas extras lançadas ESTE MÊS
   const totalMonthlyBudget = (profile?.monthly_income || 0) + incomeFromTransactions;
   const remainingBudget = totalMonthlyBudget - expenses;
   const isOverBudget = remainingBudget < 0;
 
-  const categoryData = transactions
+  const categoryData = monthlyTransactions
     .filter(t => t.type === 'expense')
     .reduce((acc: any[], t) => {
       const existing = acc.find(item => item.name === t.category);
@@ -130,7 +143,7 @@ export default function Dashboard() {
               <button
                 onClick={() => setIsEditingIncome(true)}
                 className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
-                title="Editar Salário"
+                title="Editar Salário Base"
               >
                 <Edit3 className="w-4 h-4" />
               </button>
@@ -164,26 +177,24 @@ export default function Dashboard() {
         </motion.div>
 
         <StatCard
-          title="Saídas do Mês"
+          title="Entradas Extras (Mês)"
+          value={incomeFromTransactions}
+          icon={ArrowUpRight}
+          color="emerald"
+        />
+
+        <StatCard
+          title="Saídas de Março"
           value={expenses}
           icon={TrendingDown}
           color="rose"
         />
 
         <StatCard
-          title="Status do Orçamento"
-          value={remainingBudget}
-          icon={isOverBudget ? AlertCircle : Wallet}
-          color={isOverBudget ? "rose" : "emerald"}
-          isStatus
-          statusText={isOverBudget ? "No Vermelho!" : "No Azul"}
-        />
-
-        <StatCard
-          title="Sobrou no Bolso"
-          value={remainingBudget}
-          icon={TrendingUp}
-          color="amber"
+          title="Saldo Geral Acumulado"
+          value={historicalBalance}
+          icon={Wallet}
+          color="indigo"
           isProfit
         />
       </div>
@@ -264,7 +275,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {transactions.slice(0, 5).map((t) => (
+              {transactions.slice(0, 10).map((t) => (
                 <tr key={t.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
