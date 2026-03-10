@@ -24,12 +24,19 @@ export default function DespesasFixas() {
         const start = startOfMonth(now).toISOString();
         const end = endOfMonth(now).toISOString();
 
-        // 1. Fetch fixed expenses
-        // 2. Fetch transactions for current month with fixed_expense_id
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        // 1. Fetch fixed expenses (Filtered by user)
+        // 2. Fetch transactions for current month with fixed_expense_id (Filtered by user)
         const [expensesRes, transRes] = await Promise.all([
-            supabase.from('fixed_expenses').select('*').order('due_day', { ascending: true }),
+            supabase.from('fixed_expenses')
+                .select('*')
+                .eq('user_id', session.user.id)
+                .order('due_day', { ascending: true }),
             supabase.from('transactions')
                 .select('fixed_expense_id')
+                .eq('user_id', session.user.id)
                 .eq('type', 'expense')
                 .not('fixed_expense_id', 'is', null)
                 .gte('date', start)
@@ -48,13 +55,17 @@ export default function DespesasFixas() {
     async function handlePay(expense: FixedExpense) {
         if (paidIds.includes(expense.id)) return;
 
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
         const transactionData = {
             description: `Pagamento: ${expense.description}`,
             amount: expense.amount,
             type: 'expense',
             category: expense.category,
             date: new Date().toISOString(),
-            fixed_expense_id: expense.id
+            fixed_expense_id: expense.id,
+            user_id: session.user.id
         };
 
         const { error } = await supabase.from('transactions').insert([transactionData]);

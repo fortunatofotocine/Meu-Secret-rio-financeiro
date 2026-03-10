@@ -35,7 +35,12 @@ export default function FixedExpenseModal({ isOpen, onClose, onSave, expense }: 
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        setLoading(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            alert('Você precisa estar logado.');
+            setLoading(false);
+            return;
+        }
 
         const expenseData = {
             description,
@@ -43,6 +48,7 @@ export default function FixedExpenseModal({ isOpen, onClose, onSave, expense }: 
             category,
             due_day: parseInt(dueDay),
             active: true,
+            user_id: session.user.id
         };
 
         try {

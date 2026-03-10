@@ -28,8 +28,18 @@ export default function Dashboard() {
     const { data: { session } } = await supabase.auth.getSession();
 
     const [transRes, eventsRes, profileRes] = await Promise.all([
-      supabase.from('transactions').select('*').gte('date', start).lte('date', end).order('date', { ascending: false }),
-      supabase.from('events').select('*').gte('start_time', now.toISOString()).order('start_time', { ascending: true }).limit(5),
+      supabase.from('transactions')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .gte('date', start)
+        .lte('date', end)
+        .order('date', { ascending: false }),
+      supabase.from('events')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .gte('start_time', now.toISOString())
+        .order('start_time', { ascending: true })
+        .limit(5),
       session ? supabase.from('profiles').select('*').eq('id', session.user.id).single() : Promise.resolve({ data: null })
     ]);
 
