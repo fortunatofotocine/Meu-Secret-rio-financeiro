@@ -204,7 +204,7 @@ async function processWhatsAppMessage(from: string, msgBody: string, msgId: stri
 
     // --- UNDERSTANDING ENGINE v2 (Layered Architecture) ---
     const currentDateTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-    const resultV2 = await processMessageV2(msgBody, currentDateTime, internalMessageId);
+    const resultV2 = await processMessageV2(msgBody, currentDateTime, internalMessageId, from);
 
     // Update message status with the final result
     await supabase.from("whatsapp_messages").update({
@@ -257,7 +257,7 @@ async function sendWhatsAppMessage(to: string, text: string, phone_number_id: st
 
 // --- NEW UNDERSTANDING ENGINE v2 ---
 
-async function processMessageV2(text: string, currentDateTime: string, msgId: string) {
+async function processMessageV2(text: string, currentDateTime: string, msgId: string, from: string) {
   const lowerText = text.toLowerCase();
 
   // Layer 1: Intent Classification
@@ -267,7 +267,7 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
   else if (/(anotar|anota|observação|obs|lembrar|guardar|escrever)/i.test(text)) intent = 'note';
 
   // Layer 2: Structured Parsing (Regex/Logic)
-  const extraction = extractStructuredData(text, currentDateTime);
+  const extraction = extractStructuredData(text, currentDateTime, intent);
 
   // Intelligence Boost: Even if "full", if description is too short, use AI to beautify
   const needsBeautifying = extraction.full && extraction.data.description?.length < 8;
@@ -309,9 +309,18 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
   let status: 'processed' | 'pending_confirmation' | 'error' = 'pending_confirmation';
 
   try {
-    if (interpretation.type === 'finance') {
-      const { amount, description, type, date } = interpretation.data;
+    const { amount, description, type, date, title, start_time, isUpdate } = interpretation.data;
 
+    // --- NEW: UPDATE LOGIC (v2.3) ---
+    if (isUpdate) {
+      const result = await updateLastRecord(from, interpretation);
+      if (result.success) {
+        status = 'processed';
+        reply = `✅ *Atualizado:* ${result.message}`;
+      } else {
+        reply = "🤔 Não encontrei o que você quer mudar. Pode mandar o novo comando completo?";
+      }
+    } else if (interpretation.type === 'finance') {
       if (!amount) {
         reply = "🤔 Entendi que é um gasto, mas não consegui identificar o **valor**. Pode repetir?";
       } else if (!description) {
@@ -388,7 +397,8 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
   return { status, interpretation, reply };
 }
 
-function extractStructuredData(text: string, currentDateTime: string) {
+// Layer 2: Deep Structured Parser
+function extractStructuredData(text: string, currentDateTime: string, intent: string = "unknown") {
   const data: any = {};
   const lowerText = text.toLowerCase();
 
@@ -422,30 +432,36 @@ function extractStructuredData(text: string, currentDateTime: string) {
   data.date = baseDate.toISOString();
   data.start_time = baseDate.toISOString();
 
-  // 4. Description Extraction (Cleaning)
-  // We want to be careful not to over-clean
+  // 4. Description Extraction (Cleaning) - SMARTER APPROACH
+  // Instead of broad regex, we target only the exact words that are clearly "commands" or dates/times we found
   let cleanDesc = text
-    .replace(/(?:gastei|paguei|recebi|comprei|agendar|marcar|agenda|reunião|compromisso|lembrete|visita|anotar)/gi, '')
+    .replace(/(?:gastei|paguei|recebi|recebimento|comprei|agendar|marcar|agenda|reunião|compromisso|lembrete|visita|anotar|anota|obs|mude|alterar|altere|mudar|trocar|troque)\s+/gi, '')
     .replace(/(?:r\$\s*)?\d+(?:[.,]\d+)?(?:\s*reais)?/gi, '')
-    .replace(/(?:hoje|ontem|amanhã|amanha|anteontem|as|às|nos?|agora|já)/gi, '')
-    .replace(/\d{1,2}(?::\d{2})?\s*(?:h|horas?|da noite|da manhã|da tarde)/gi, '')
+    .replace(/(?:hoje|ontem|amanhã|amanha|anteontem|agora|já)/gi, '')
+    // Only remove very specific date patterns like 00/00/0000
+    .replace(/\d{1,2}\/\d{1,2}(?:\/\d{2,4})?/g, '')
+    // Remove "at" prepositions followed by time
+    .replace(/(?:as|às|no|na|pelo|pela|em|com|do|da|de|p\s+)\s*\d{1,2}(?::\d{2})?\s*(?:h|horas?|da noite|da manhã|da tarde)/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 
   // Remove common connector words at start (Brazilian Portuguese)
-  cleanDesc = cleanDesc.replace(/^(com|de|em|no|na|pelo|pela|num|numa|do|da)\s+/i, '');
+  cleanDesc = cleanDesc.replace(/^(com|de|em|no|na|pelo|pela|num|numa|do|da|para|pra)\s+/i, '');
 
-  data.description = cleanDesc || "Sem descrição";
+  data.description = cleanDesc || (intent === 'finance' ? "Gasto sem nome" : "Compromisso");
   data.title = cleanDesc || "Compromisso";
 
   // Reliability Check
-  // We have a "full" extraction if we have Amount + Description OR Title + Time
   const hasFinance = !!(data.amount && cleanDesc.length > 2);
   const hasEvent = !!(cleanDesc.length > 2 && hasTime);
 
   // DETECT INCOME (RECEITA)
   const isIncome = lowerText.includes("recebi") || lowerText.includes("entrada") || lowerText.includes("ganhei") || lowerText.includes("recebimento");
   data.type = isIncome ? 'income' : 'expense';
+
+  // DETECT UPDATE (MUDAR)
+  const isUpdate = /(mude|alterar|altere|mudar|trocar|troque|corrigir|corrija)/i.test(text);
+  (data as any).isUpdate = isUpdate;
 
   return { data, full: (hasFinance || hasEvent) && !!data.type };
 }
@@ -484,6 +500,43 @@ async function downloadWhatsAppMedia(mediaId: string): Promise<{ data: string, m
 }
 
 // AI Interpretation Logic
+// Update Logic Helper (v2.3)
+async function updateLastRecord(from: string, interpretation: any) {
+  const { type, data } = interpretation;
+  const table = type === 'finance' ? 'transactions' : (type === 'event' ? 'events' : 'notes');
+
+  // Find last record from this sender
+  const { data: records, error: fetchError } = await supabase
+    .from(table)
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (fetchError || !records || records.length === 0) return { success: false };
+
+  const lastRecord = records[0];
+  const updates: any = {};
+
+  if (type === 'finance') {
+    if (data.amount) updates.amount = data.amount;
+    if (data.description && data.description !== "Gasto sem nome") updates.description = data.description;
+    if (data.date) updates.date = data.date;
+  } else if (type === 'event') {
+    if (data.title && data.title !== "Compromisso") updates.title = data.title;
+    if (data.start_time) updates.start_time = data.start_time;
+  }
+
+  const { error: updateError } = await supabase
+    .from(table)
+    .update(updates)
+    .eq('id', lastRecord.id);
+
+  if (updateError) return { success: false };
+
+  const desc = type === 'finance' ? `R$ ${updates.amount || lastRecord.amount} - ${updates.description || lastRecord.description}` : (updates.title || lastRecord.title);
+  return { success: true, message: desc };
+}
+
 async function interpretMessage(text: string, suggestedIntent: string = "unknown", currentDateTime: string, audioData?: { data: string, mimeType: string }) {
   const modelName = "gemini-2.0-flash-lite";
   console.log(`[Unlimited AI] Interpretando: ${text} | Sugestão: ${suggestedIntent} | Agora: ${currentDateTime} | Audio: ${!!audioData}`);
@@ -522,7 +575,7 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
     2. INCOME (RECEITA): Se o usuário disse "recebi", "ganhei" ou "entrada". SEMPRE use "type": "income".
     3. AGENDA: "reunião", "marcar", "agendar", "visita".
     4. ANOTAÇÃO: Se for apenas um lembrete sem data/valor.
-    5. ATUALIZAÇÃO: Se o usuário disser "Mude isso para...", interprete como se ele estivesse corrigindo um comando anterior.
+    5. ATUALIZAÇÃO: Se o usuário disser "Mude isso para...", "Altere...", "Corrija isso", use "isUpdate": true.
     6. "hoje", "amanhã", "ontem" devem ser convertidos para a data real baseada em ${currentDateTime}.
 
     SAÍDA (APENAS JSON):
@@ -530,6 +583,7 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
       "type": "finance" | "event" | "note" | "unknown",
       "confidence": 0.0 a 1.0,
       "data": { 
+        "isUpdate": boolean,
         // Se finance: description, amount (numbers), type (expense/income), category, date (ISO)
         // Se event: title, description, start_time (ISO), end_time (ISO)
         // Se note: description (o texto da anotação)
