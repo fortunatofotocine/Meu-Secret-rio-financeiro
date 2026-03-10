@@ -63,6 +63,27 @@ app.get("/api/debug-logs", async (req, res) => {
   }
 });
 
+app.get("/api/test-parser", async (req, res) => {
+  const testPhrases = [
+    "gastei 5 reais hoje na padaria",
+    "paguei 20 ontem no posto",
+    "gastei 12 com estacionamento hoje",
+    "agendar reunião amanhã às 21h",
+    "recebi 300 hoje de cliente",
+    "comprei pão 15 reais ontem"
+  ];
+
+  const currentDateTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const results = [];
+
+  for (const phrase of testPhrases) {
+    const extraction = extractStructuredData(phrase, currentDateTime);
+    results.push({ phrase, extraction });
+  }
+
+  res.json({ currentDateTime, results });
+});
+
 // WhatsApp Webhook Verification (GET)
 app.get("/api/webhook/whatsapp", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -178,88 +199,18 @@ async function processWhatsAppMessage(from: string, msgBody: string, msgId: stri
 
     const internalMessageId = logData?.[0]?.id;
 
-    // 3. Simple Intent Classifier & Parser
-    let responseText = "Não entendi sua mensagem. Você pode registrar gastos (ex: 'Gastei 15 reais com lanche') ou marcar compromissos (ex: 'Agendar reunião amanhã às 15h').";
-    let intentDetected = "unknown";
+    // --- UNDERSTANDING ENGINE v2 (Layered Architecture) ---
+    const currentDateTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    const resultV2 = await processMessageV2(msgBody, currentDateTime, internalMessageId);
 
-    if (msgBody) {
-      const lowerMsg = msgBody.toLowerCase();
-      const currentDateTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    // Update message status with the final result
+    await supabase.from("whatsapp_messages").update({
+      status: resultV2.status,
+      interpretation: resultV2.interpretation
+    }).eq("id", internalMessageId);
 
-      try {
-        // High-level Intent hint for the AI
-        if (lowerMsg.includes("gastei") || lowerMsg.includes("paguei") || lowerMsg.includes("comprei") || lowerMsg.includes("recebi")) {
-          intentDetected = "finance";
-        } else if (lowerMsg.includes("agendar") || lowerMsg.includes("agenda") || lowerMsg.includes("marcar") || lowerMsg.includes("reunião") || lowerMsg.includes("lembrete")) {
-          intentDetected = "event";
-        }
-
-        const interpretation = await interpretMessage(msgBody, intentDetected, currentDateTime);
-
-        await supabase.from("system_logs").insert([{
-          event_type: "ai_interpretation",
-          payload: { interpretation, msgId, currentDateTime }
-        }]);
-
-        if (interpretation.confidence > 0.45) { // Lowered slightly to trust the improved AI prompt
-          if (interpretation.type === "finance") {
-            const { error: transError } = await supabase.from("transactions").insert([
-              {
-                description: interpretation.data.description,
-                amount: interpretation.data.amount,
-                type: interpretation.data.type,
-                category: interpretation.data.category || "Outros",
-                date: interpretation.data.date || new Date().toISOString(),
-                whatsapp_message_id: internalMessageId
-              }
-            ]);
-
-            if (transError) {
-              await supabase.from("system_logs").insert([{ event_type: "db_error_transaction", payload: { error: transError, msgId } }]);
-              await supabase.from("whatsapp_messages").update({ status: "error" }).eq("id", internalMessageId);
-              responseText = "❌ Erro ao salvar o registro financeiro.";
-            } else {
-              await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("id", internalMessageId);
-              responseText = `✅ *Lançamento salvo!* \n💰 R$ ${interpretation.data.amount} - ${interpretation.data.description}`;
-            }
-          } else if (interpretation.type === "event") {
-            const { error: eventError } = await supabase.from("events").insert([
-              {
-                title: interpretation.data.title,
-                description: interpretation.data.description || msgBody,
-                start_time: interpretation.data.start_time,
-                end_time: interpretation.data.end_time || new Date(new Date(interpretation.data.start_time).getTime() + 60 * 60 * 1000).toISOString(),
-                whatsapp_message_id: internalMessageId
-              }
-            ]);
-
-            if (eventError) {
-              await supabase.from("system_logs").insert([{ event_type: "db_error_event", payload: { error: eventError, msgId } }]);
-              await supabase.from("whatsapp_messages").update({ status: "error" }).eq("id", internalMessageId);
-              responseText = "❌ Erro ao agendar seu compromisso.";
-            } else {
-              await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("id", internalMessageId);
-              const dataFormatada = new Date(interpretation.data.start_time).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-              responseText = `📅 *Agenda: ${interpretation.data.title} às ${dataFormatada}*`;
-            }
-          } else {
-            // interpretation type is unknown
-            await supabase.from("whatsapp_messages").update({ status: "pending_confirmation", interpretation }).eq("id", internalMessageId);
-            responseText = interpretation.reply || "🤔 Não entendi se isso é um gasto ou compromisso. Pode detalhar?";
-          }
-        } else {
-          await supabase.from("whatsapp_messages").update({ status: "pending_confirmation", interpretation }).eq("id", internalMessageId);
-          responseText = interpretation.reply || "🤔 Fiquei na dúvida. Foi um gasto ou algo na agenda?";
-        }
-      } catch (procErr: any) {
-        console.error("Erro no processamento:", procErr);
-        await supabase.from("whatsapp_messages").update({ status: "error" }).eq("id", internalMessageId);
-        responseText = "❌ Tive um problema técnico. Pode tentar de novo?";
-      }
-    }
-
-    // 4. Send reply back to WhatsApp (ALWAYS called)
-    await sendWhatsAppMessage(from, responseText, phone_number_id);
+    // Final user response
+    await sendWhatsAppMessage(from, resultV2.reply, phone_number_id);
   } catch (error: any) {
     console.error("Erro geral no processamento:", error);
     await supabase.from("system_logs").insert([{
@@ -299,6 +250,149 @@ async function sendWhatsAppMessage(to: string, text: string, phone_number_id: st
   } catch (err: any) {
     console.error("Error sending WhatsApp message:", err);
   }
+}
+
+// --- NEW UNDERSTANDING ENGINE v2 ---
+
+async function processMessageV2(text: string, currentDateTime: string, msgId: string) {
+  const lowerText = text.toLowerCase();
+
+  // Layer 1: Intent Classification
+  let intent: 'finance' | 'event' | 'unknown' = 'unknown';
+  if (/(gastei|paguei|recebi|comprei|valor|reais|r\$)/i.test(text)) intent = 'finance';
+  else if (/(agendar|marcar|agenda|reunião|compromisso|lembrete|visita)/i.test(text)) intent = 'event';
+
+  // Layer 2: Structured Parsing (Regex/Logic)
+  const extraction = extractStructuredData(text, currentDateTime);
+
+  // Method used tracker
+  let method = extraction.full ? 'structured_parser' : 'hybrid';
+  let interpretation = { type: intent, data: extraction.data, confidence: extraction.full ? 1.0 : 0.5 };
+
+  // Layer 3: AI Fallback (if structured fails mandatory fields)
+  if (!extraction.full) {
+    console.log(`[V2] Layer 2 incompleta. Chamando IA Fallback...`);
+    const aiResult = await interpretMessage(text, intent, currentDateTime);
+    method = 'ai_fallback';
+    interpretation = aiResult;
+  }
+
+  // Layer 4: Validation & Execution
+  let reply = "";
+  let status: 'processed' | 'pending_confirmation' | 'error' = 'pending_confirmation';
+
+  try {
+    if (interpretation.type === 'finance') {
+      const { amount, description, type, date } = interpretation.data;
+
+      if (!amount) {
+        reply = "🤔 Entendi que é um gasto, mas não consegui identificar o **valor**. Pode repetir?";
+      } else if (!description) {
+        reply = "🤔 Entendi o valor, mas com o que você gastou? (Ex: 'na padaria')";
+      } else {
+        const { error } = await supabase.from("transactions").insert([{
+          description, amount, type: type || 'expense', date: date || new Date().toISOString(), whatsapp_message_id: msgId
+        }]);
+        if (!error) {
+          status = 'processed';
+          reply = `✅ *Registro salvo!*\n💰 R$ ${amount} - ${description}`;
+        } else {
+          status = 'error';
+          reply = "❌ Erro ao salvar no banco de dados.";
+        }
+      }
+    } else if (interpretation.type === 'event') {
+      const { title, start_time } = interpretation.data;
+      if (!title) {
+        reply = "📅 Entendi que quer agendar algo, mas o que seria? (Ex: 'reunião')";
+      } else if (!start_time) {
+        reply = "📅 Entendi o compromisso, mas para **quando**? (Ex: 'amanhã às 10h')";
+      } else {
+        const { error } = await supabase.from("events").insert([{
+          title, start_time, whatsapp_message_id: msgId
+        }]);
+        if (!error) {
+          status = 'processed';
+          const dataFmt = new Date(start_time).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+          reply = `✅ *Agendado:* ${title}\n⏰ ${dataFmt}`;
+        } else {
+          status = 'error';
+          reply = "❌ Erro ao salvar na agenda.";
+        }
+      }
+    } else {
+      reply = "🤔 Não tenho certeza se é um gasto ou agendamento. Pode ser mais específico?";
+    }
+  } catch (err) {
+    status = 'error';
+    reply = "❌ Houve um erro no processamento v2.";
+  }
+
+  // Log detailed metadata
+  await supabase.from("system_logs").insert([{
+    event_type: "understanding_v2_result",
+    payload: { original: text, intent, method, extraction, finalInterpretation: interpretation, status }
+  }]);
+
+  return { status, interpretation, reply };
+}
+
+function extractStructuredData(text: string, currentDateTime: string) {
+  const data: any = {};
+  const lowerText = text.toLowerCase();
+
+  // 1. Value Extraction (R$ 10, 10 reais, 10.50)
+  // Improved to ensure we catch numbers only preceded/followed by currency markers
+  const valueMatch = text.match(/(?:r\$\s*|reais\s*)?(\d+(?:[.,]\d+)?)(?:\s*reais|\s*r\$)?/i);
+  if (valueMatch) data.amount = parseFloat(valueMatch[1].replace(',', '.'));
+
+  // 2. Date Extraction (hoje, ontem, amanhã, anteontem)
+  let baseDate = new Date();
+  const lower = text.toLowerCase();
+  if (lower.includes("ontem")) baseDate.setDate(baseDate.getDate() - 1);
+  else if (lower.includes("amanhã") || lower.includes("amanha")) baseDate.setDate(baseDate.getDate() + 1);
+  else if (lower.includes("anteontem")) baseDate.setDate(baseDate.getDate() - 2);
+
+  // 3. Time Extraction (21h, 21:00, 9 da noite)
+  const timeMatch = text.match(/(\d{1,2})(?::(\d{2}))?\s*(h|horas?|da noite|da manhã|da tarde)/i);
+  let hour = 12; // Default
+  let min = 0;
+  let hasTime = false;
+  if (timeMatch) {
+    hasTime = true;
+    hour = parseInt(timeMatch[1]);
+    min = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+    if (timeMatch[3].includes("noite") && hour < 12) hour += 12;
+    if (timeMatch[3].includes("tarde") && hour < 12) hour += 12;
+  }
+
+  // Set date/time
+  baseDate.setHours(hour, min, 0, 0);
+  data.date = baseDate.toISOString();
+  data.start_time = baseDate.toISOString();
+
+  // 4. Description Extraction (Cleaning)
+  // We want to be careful not to over-clean
+  let cleanDesc = text
+    .replace(/(?:gastei|paguei|recebi|comprei|agendar|marcar|agenda|reunião|compromisso|lembrete|visita|anotar)/gi, '')
+    .replace(/(?:r\$\s*)?\d+(?:[.,]\d+)?(?:\s*reais)?/gi, '')
+    .replace(/(?:hoje|ontem|amanhã|amanha|anteontem|as|às|nos?|agora|já)/gi, '')
+    .replace(/\d{1,2}(?::\d{2})?\s*(?:h|horas?|da noite|da manhã|da tarde)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Remove common connector words at start (Brazilian Portuguese)
+  cleanDesc = cleanDesc.replace(/^(com|de|em|no|na|pelo|pela|num|numa|do|da)\s+/i, '');
+
+  data.description = cleanDesc || "Sem descrição";
+  data.title = cleanDesc || "Compromisso";
+
+  // Reliability Check
+  // We have a "full" extraction if we have Amount + Description OR Title + Time
+  const hasFinance = !!(data.amount && cleanDesc.length > 2);
+  const hasEvent = !!(cleanDesc.length > 2 && hasTime);
+
+  return { data, full: hasFinance || hasEvent };
 }
 
 // AI Interpretation Logic
