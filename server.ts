@@ -176,14 +176,35 @@ app.post("/api/webhook/whatsapp", async (req, res) => {
 
 async function processWhatsAppMessage(from: string, msgBody: string, msgId: string, rawPayload: any, phone_number_id?: string) {
   try {
-    // 1. Initial Receipt Log
+    // 1. User Lookup by WhatsApp Number
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("whatsapp_number", from)
+      .single();
+
+    if (profileError || !profile) {
+      console.log(`[Auth] Usuário não registrado: ${from}`);
+      const regLink = `https://${process.env.VERCEL_URL || 'seu-sistema.vercel.app'}/register?whatsapp=${from}`;
+      await sendWhatsAppMessage(from, `👋 Olá! Vi que você ainda não tem uma conta vinculada a este número.\n\nPara começar a usar, cadastre-se aqui: ${regLink}`, phone_number_id || "");
+      return;
+    }
+
+    const user_id = profile.id;
+
+    // --- LEGACY DATA CLAIM (v3.0) ---
+    // Link orphan records to this user if they match the phone number but have no user_id
+    await supabase.rpc('claim_orphan_records', { _user_id: user_id, _sender_number: from });
+
+    // 2. Initial Receipt Log (Now with user_id)
     const { data: logData, error: logInitialError } = await supabase.from("whatsapp_messages").insert([
       {
         whatsapp_id: msgId,
         sender_number: from,
         message_text: msgBody,
         raw_data: rawPayload,
-        status: 'pending_confirmation'
+        status: 'pending_confirmation',
+        user_id // Link to user
       }
     ]).select();
 
@@ -204,7 +225,7 @@ async function processWhatsAppMessage(from: string, msgBody: string, msgId: stri
 
     // --- UNDERSTANDING ENGINE v2 (Layered Architecture) ---
     const currentDateTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-    const resultV2 = await processMessageV2(msgBody, currentDateTime, internalMessageId, from);
+    const resultV2 = await processMessageV2(msgBody, currentDateTime, internalMessageId, from, user_id);
 
     // Update message status with the final result
     await supabase.from("whatsapp_messages").update({
@@ -257,7 +278,7 @@ async function sendWhatsAppMessage(to: string, text: string, phone_number_id: st
 
 // --- NEW UNDERSTANDING ENGINE v2 ---
 
-async function processMessageV2(text: string, currentDateTime: string, msgId: string, from: string) {
+async function processMessageV2(text: string, currentDateTime: string, msgId: string, from: string, user_id: string) {
   const lowerText = text.toLowerCase();
 
   // Layer 1: Intent Classification
@@ -320,7 +341,7 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
 
     // --- NEW: UPDATE LOGIC (v2.3) ---
     if (isUpdate) {
-      const result = await updateLastRecord(from, interpretation);
+      const result = await updateLastRecord(from, interpretation, user_id);
       if (result.success) {
         status = 'processed';
         reply = `✅ *Atualizado:* ${result.message}`;
@@ -337,9 +358,10 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
           description,
           amount,
           type: type || 'expense',
-          category: interpretation.data.category || "Outros", // FIXED: Added missing required field
+          category: interpretation.data.category || "Outros",
           date: date || new Date().toISOString(),
-          whatsapp_message_id: msgId
+          whatsapp_message_id: msgId,
+          user_id
         }]);
         if (!error) {
           status = 'processed';
@@ -364,7 +386,7 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
         reply = "📅 Entendi o compromisso, mas para **quando**? (Ex: 'amanhã às 10h')";
       } else {
         const { error } = await supabase.from("events").insert([{
-          title, start_time, whatsapp_message_id: msgId
+          title, start_time, whatsapp_message_id: msgId, user_id
         }]);
         if (!error) {
           status = 'processed';
@@ -378,7 +400,7 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
     } else if (interpretation.type === 'note') {
       const content = interpretation.data.description || text;
       const { error } = await supabase.from("notes").insert([{
-        content, whatsapp_message_id: msgId
+        content, whatsapp_message_id: msgId, user_id
       }]);
       if (!error) {
         status = 'processed';
@@ -395,10 +417,10 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
     reply = "❌ Houve um erro no processamento v2.";
   }
 
-  // Log detailed metadata
   await supabase.from("system_logs").insert([{
     event_type: "understanding_v2_result",
-    payload: { original: text, intent, method, extraction, finalInterpretation: interpretation, status }
+    payload: { original: text, intent, method, extraction, finalInterpretation: interpretation, status },
+    user_id
   }]);
 
   return { status, interpretation, reply };
@@ -508,15 +530,15 @@ async function downloadWhatsAppMedia(mediaId: string): Promise<{ data: string, m
 
 // AI Interpretation Logic
 // Update Logic Helper (v2.4) - Robust Filtering by Sender
-async function updateLastRecord(from: string, interpretation: any) {
+async function updateLastRecord(from: string, interpretation: any, user_id: string) {
   const { type, data } = interpretation;
   const table = interpretation.type === 'finance' ? 'transactions' : (interpretation.type === 'event' ? 'events' : 'notes');
 
-  // 1. Find the last message from this user that wasn't an "unknown" or "error"
+  // 1. Find the last message from this user
   const { data: lastMsgs, error: msgError } = await supabase
     .from("whatsapp_messages")
     .select("id")
-    .eq("sender_number", from)
+    .eq("user_id", user_id) // Strict isolation
     .neq("status", "error")
     .order("created_at", { ascending: false })
     .limit(10);
@@ -529,6 +551,7 @@ async function updateLastRecord(from: string, interpretation: any) {
     .from(table)
     .select("*")
     .in("whatsapp_message_id", msgIds)
+    .eq("user_id", user_id) // Extra safety check
     .order("created_at", { ascending: false })
     .limit(1);
 
