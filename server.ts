@@ -620,30 +620,35 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
     MENSAGEM DO USUÁRIO: "${text}"`;
 
     let rawResponse = "";
-    if (audioData) {
-      console.log(`[Audio] Enviando para Gemini multimodal (2.0-flash)...`);
-      const audioModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const maxRetries = 2;
+    let attempt = 0;
 
-      // Log audio payload size to Supabase for debugging
-      await supabase.from("system_logs").insert([{
-        event_type: "audio_payload_debug",
-        payload: { size: audioData.data.length, mimeType: audioData.mimeType }
-      }]);
-
-      prompt = `Transcreva e interprete este áudio do WhatsApp. IMPORTANTE: Se o áudio estiver vazio ou inaudível, responda com confidence 0 e intent unknown. ${prompt}`;
-      const result = await audioModel.generateContent([
-        prompt,
-        {
-          inlineData: {
-            data: audioData.data,
-            mimeType: audioData.mimeType
-          }
+    while (attempt <= maxRetries) {
+      try {
+        if (audioData) {
+          console.log(`[Audio] Enviando para Gemini (2.0-flash)... Tentativa ${attempt + 1}`);
+          const audioModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+          const result = await audioModel.generateContent([
+            prompt,
+            { inlineData: { data: audioData.data, mimeType: audioData.mimeType } }
+          ]);
+          rawResponse = result.response.text();
+        } else {
+          const result = await model.generateContent(prompt);
+          rawResponse = result.response.text();
         }
-      ]);
-      rawResponse = result.response.text();
-    } else {
-      const result = await model.generateContent(prompt);
-      rawResponse = result.response.text();
+        break;
+      } catch (err: any) {
+        const isQuota = err.message.includes("429") || err.message.includes("quota");
+        if (isQuota && attempt < maxRetries) {
+          attempt++;
+          const delay = Math.pow(2, attempt) * 2000;
+          console.log(`[AI] Quota hit. Retrying in ${delay}ms...`);
+          await new Promise(res => setTimeout(res, delay));
+        } else {
+          throw err;
+        }
+      }
     }
 
     // Debug log the raw AI response (FOR BOTH TEXT AND AUDIO)
@@ -664,12 +669,19 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
     return interpretation;
   } catch (error: any) {
     console.error("Unlimited AI failed:", error.message);
-    // Log to Supabase so we can see it!
+
+    // DETECÇÃO DE QUOTA (429)
+    const isQuotaError = error.message.includes("429") || error.message.includes("quota");
+    const reply = isQuotaError
+      ? "⚠️ O limite diário de áudio/IA do Google foi atingido. Por favor, tente novamente em alguns minutos ou use texto."
+      : "Tive um lapso de memória! Pode repetir?";
+
     await supabase.from("system_logs").insert([{
       event_type: "ai_error",
-      payload: { error: error.message, text, hasAudio: !!audioData }
+      payload: { error: error.message, text, hasAudio: !!audioData, isQuotaError }
     }]);
-    return { type: "unknown", confidence: 0, data: {}, reply: "Tive um lapso de memória! Pode repetir?" };
+
+    return { type: "unknown", confidence: 0, data: {}, reply };
   }
 }
 
