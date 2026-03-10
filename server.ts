@@ -621,13 +621,23 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
 
     let rawResponse = "";
     if (audioData) {
-      console.log(`[Audio] Enviando para Gemini multimodal (1.5-flash)...`);
-      const audioModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      console.log(`[Audio] Enviando para Gemini multimodal (2.0-flash)...`);
+      const audioModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+      // Log audio payload size to Supabase for debugging
+      await supabase.from("system_logs").insert([{
+        event_type: "audio_payload_debug",
+        payload: { size: audioData.data.length, mimeType: audioData.mimeType }
+      }]);
+
       prompt = `Transcreva e interprete este áudio do WhatsApp. IMPORTANTE: Se o áudio estiver vazio ou inaudível, responda com confidence 0 e intent unknown. ${prompt}`;
       const result = await audioModel.generateContent([
         prompt,
         {
-          inlineData: audioData
+          inlineData: {
+            data: audioData.data,
+            mimeType: audioData.mimeType
+          }
         }
       ]);
       rawResponse = result.response.text();
