@@ -621,9 +621,10 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
 
     let rawResponse = "";
     if (audioData) {
-      console.log(`[Audio] Enviando para Gemini multimodal...`);
+      console.log(`[Audio] Enviando para Gemini multimodal (1.5-flash)...`);
+      const audioModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       prompt = `Transcreva e interprete este áudio do WhatsApp. IMPORTANTE: Se o áudio estiver vazio ou inaudível, responda com confidence 0 e intent unknown. ${prompt}`;
-      const result = await model.generateContent([
+      const result = await audioModel.generateContent([
         prompt,
         {
           inlineData: audioData
@@ -653,6 +654,11 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
     return interpretation;
   } catch (error: any) {
     console.error("Unlimited AI failed:", error.message);
+    // Log to Supabase so we can see it!
+    await supabase.from("system_logs").insert([{
+      event_type: "ai_error",
+      payload: { error: error.message, text, hasAudio: !!audioData }
+    }]);
     return { type: "unknown", confidence: 0, data: {}, reply: "Tive um lapso de memória! Pode repetir?" };
   }
 }
