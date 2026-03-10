@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Wallet, Calendar, ArrowUpRight, ArrowDownRight, Edit3, Check, X, AlertCircle } from 'lucide-react';
 import { supabase, type Transaction, type Event, type Profile } from '../lib/supabase';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
@@ -12,6 +13,7 @@ export default function Dashboard() {
   const [upcomingEvents, setUpcomingEvents] = useState<Event[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
   const [isEditingIncome, setIsEditingIncome] = useState(false);
   const [newIncome, setNewIncome] = useState('');
 
@@ -119,12 +121,15 @@ export default function Dashboard() {
           <p className="text-slate-500">Bem-vindo ao seu secretário financeiro pessoal.</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2">
+          <button
+            onClick={() => navigate('/financeiro')}
+            className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 hover:bg-slate-50 transition-colors"
+          >
             <Calendar className="w-4 h-4 text-slate-400" />
             <span className="text-sm font-medium text-slate-600">
               {format(new Date(), "MMMM yyyy", { locale: ptBR })}
             </span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -204,7 +209,12 @@ export default function Dashboard() {
         <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-bold text-lg text-slate-800">Gastos por Categoria</h3>
-            <button className="text-sm font-medium text-indigo-600 hover:text-indigo-700">Ver Detalhes</button>
+            <button
+              onClick={() => navigate('/financeiro')}
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+            >
+              Ver Detalhes
+            </button>
           </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -252,7 +262,10 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          <button className="w-full mt-6 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+          <button
+            onClick={() => navigate('/agenda')}
+            className="w-full mt-6 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+          >
             Ver Agenda Completa
           </button>
         </div>
@@ -262,7 +275,12 @@ export default function Dashboard() {
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between">
           <h3 className="font-bold text-lg text-slate-800">Últimos Lançamentos</h3>
-          <button className="text-sm font-medium text-indigo-600 hover:text-indigo-700">Ver Todos</button>
+          <button
+            onClick={() => navigate('/financeiro')}
+            className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+          >
+            Ver Todos
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
