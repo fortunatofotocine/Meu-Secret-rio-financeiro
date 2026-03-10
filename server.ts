@@ -289,6 +289,8 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
       audioData = await downloadWhatsAppMedia(mediaId);
       if (!audioData) {
         console.error(`[Audio] Falha ao baixar mídia ID: ${mediaId}. Token presente: ${!!process.env.WHATSAPP_ACCESS_TOKEN}`);
+      } else {
+        console.log(`[Audio] Mídia baixada com sucesso. Tamanho: ${audioData.data.length} bytes. Mime: ${audioData.mimeType}`);
       }
     }
 
@@ -617,26 +619,26 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
 
     MENSAGEM DO USUÁRIO: "${text}"`;
 
+    let rawResponse = "";
     if (audioData) {
-      prompt = `Transcreva e interprete este áudio do WhatsApp. ${prompt}`;
+      console.log(`[Audio] Enviando para Gemini multimodal...`);
+      prompt = `Transcreva e interprete este áudio do WhatsApp. IMPORTANTE: Se o áudio estiver vazio ou inaudível, responda com confidence 0 e intent unknown. ${prompt}`;
       const result = await model.generateContent([
         prompt,
         {
           inlineData: audioData
         }
       ]);
-      const rawResponse = result.response.text();
-      const cleanJson = rawResponse.match(/\{[\s\S]*\}/)?.[0] || rawResponse;
-      return JSON.parse(cleanJson);
+      rawResponse = result.response.text();
+    } else {
+      const result = await model.generateContent(prompt);
+      rawResponse = result.response.text();
     }
 
-    const result = await model.generateContent(prompt);
-    const rawResponse = result.response.text();
-
-    // Debug log the raw AI response
+    // Debug log the raw AI response (FOR BOTH TEXT AND AUDIO)
     await supabase.from("system_logs").insert([{
       event_type: "ai_raw_response",
-      payload: { raw: rawResponse, text }
+      payload: { raw: rawResponse, text, hasAudio: !!audioData }
     }]);
 
     const cleanJson = rawResponse.match(/\{[\s\S]*\}/)?.[0] || rawResponse;
