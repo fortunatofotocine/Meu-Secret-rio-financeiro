@@ -258,23 +258,37 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
   const lowerText = text.toLowerCase();
 
   // Layer 1: Intent Classification
-  let intent: 'finance' | 'event' | 'unknown' = 'unknown';
+  let intent: 'finance' | 'event' | 'note' | 'unknown' = 'unknown';
   if (/(gastei|paguei|recebi|comprei|valor|reais|r\$)/i.test(text)) intent = 'finance';
   else if (/(agendar|marcar|agenda|reunião|compromisso|lembrete|visita)/i.test(text)) intent = 'event';
+  else if (/(anotar|anota|observação|obs|lembrar|guardar|escrever)/i.test(text)) intent = 'note';
 
   // Layer 2: Structured Parsing (Regex/Logic)
   const extraction = extractStructuredData(text, currentDateTime);
+
+  // Intelligence Boost: Even if "full", if description is too short, use AI to beautify
+  const needsBeautifying = extraction.full && extraction.data.description?.length < 8;
 
   // Method used tracker
   let method = extraction.full ? 'structured_parser' : 'hybrid';
   let interpretation = { type: intent, data: extraction.data, confidence: extraction.full ? 1.0 : 0.5 };
 
-  // Layer 3: AI Fallback (if structured fails mandatory fields)
-  if (!extraction.full) {
-    console.log(`[V2] Layer 2 incompleta. Chamando IA Fallback...`);
+  // Layer 3: AI Fallback / Refinement
+  if (!extraction.full || needsBeautifying) {
+    console.log(`[V2] ${needsBeautifying ? 'Beautifying title/desc...' : 'Layer 2 incompleta. Chamando IA Fallback...'}`);
     const aiResult = await interpretMessage(text, intent, currentDateTime);
-    method = 'ai_fallback';
-    interpretation = aiResult;
+    method = needsBeautifying ? 'structured+ai_refinement' : 'ai_fallback';
+
+    // Merge: Keep parser's core data (amount, dates) but take AI's descriptions
+    interpretation = {
+      ...aiResult,
+      data: {
+        ...aiResult.data,
+        amount: extraction.data.amount || aiResult.data.amount,
+        date: extraction.data.date || aiResult.data.date,
+        start_time: extraction.data.start_time || aiResult.data.start_time,
+      }
+    };
   }
 
   // Layer 4: Validation & Execution
@@ -332,8 +346,20 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
           reply = "❌ Erro ao salvar na agenda.";
         }
       }
+    } else if (interpretation.type === 'note') {
+      const content = interpretation.data.description || text;
+      const { error } = await supabase.from("notes").insert([{
+        content, whatsapp_message_id: msgId
+      }]);
+      if (!error) {
+        status = 'processed';
+        reply = `📝 *Anotado:* ${content}`;
+      } else {
+        status = 'error';
+        reply = "❌ Erro ao salvar anotação.";
+      }
     } else {
-      reply = "🤔 Não tenho certeza se é um gasto ou agendamento. Pode ser mais específico?";
+      reply = "🤔 Não tenho certeza se é um gasto, agendamento ou anotação. Pode ser mais específico?";
     }
   } catch (err) {
     status = 'error';
@@ -440,21 +466,22 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
     Agora é: ${currentDateTime} (Horário de Brasília)
 
     REGRAS DE OURO:
-    1. Se o usuário disser "paguei... na padaria", isso é FINANCEIRO (expense), não agenda.
-    2. Se ele disser "Marcar reunião", isso é AGENDA (event).
-    3. Se houver dúvida entre gasto e agenda, priorize FINANCEIRO se houver valores monetários.
-    4. "reais" ou "$" indica FINANCEIRO.
+    1. FINANCEIRO: "paguei", "gastei", "reais", "$".
+    2. AGENDA: "reunião", "marcar", "agendar", "visita".
+    3. ANOTAÇÃO: Se for apenas um lembrete sem data/valor (ex: "Anotar que o documento está na gaveta", "Lembrar de comprar leite").
+    4. ATUALIZAÇÃO: Se o usuário disser "Mude isso para...", interprete como se ele estivesse corrigindo um comando anterior.
     5. "hoje", "amanhã", "ontem" devem ser convertidos para a data real baseada em ${currentDateTime}.
 
     SAÍDA (APENAS JSON):
     {
-      "type": "finance" | "event" | "unknown",
+      "type": "finance" | "event" | "note" | "unknown",
       "confidence": 0.0 a 1.0,
       "data": { 
         // Se finance: description, amount (numbers), type (expense/income), category, date (ISO)
         // Se event: title, description, start_time (ISO), end_time (ISO)
+        // Se note: description (o texto da anotação)
       },
-      "reply": "Uma resposta curta em português confirmando ou perguntando algo"
+      "reply": "Uma resposta curta e amigável confirmando ou perguntando algo"
     }
 
     MENSAGEM DO USUÁRIO: "${text}"`;
