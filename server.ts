@@ -274,7 +274,7 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
 
   // Method used tracker
   let method = extraction.full ? 'structured_parser' : 'hybrid';
-  let interpretation = { type: intent, data: extraction.data, confidence: extraction.full ? 1.0 : 0.5 };
+  let interpretation: { type: any, data: any, confidence: number, reply?: string } = { type: intent, data: extraction.data, confidence: extraction.full ? 1.0 : 0.5 };
 
   // Layer 3: AI Fallback / Refinement / Audio Transcription
   if (!extraction.full || needsBeautifying || text.includes("[AUDIO_MESSAGE_ID:")) {
@@ -388,7 +388,7 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
         reply = "❌ Erro ao salvar anotação.";
       }
     } else {
-      reply = "🤔 Não tenho certeza se é um gasto, agendamento ou anotação. Pode ser mais específico?";
+      reply = interpretation.reply || "🤔 Não tenho certeza se é um gasto, agendamento ou anotação. Pode ser mais específico?";
     }
   } catch (err) {
     status = 'error';
