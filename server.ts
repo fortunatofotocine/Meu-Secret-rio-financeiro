@@ -134,13 +134,27 @@ app.post("/api/webhook/whatsapp", async (req, res) => {
 
       if (message) {
         const from = message.from;
-        const msgBody = message.text?.body || "";
+        let msgBody = message.text?.body || "";
         const msgId = message.id;
+
+        // --- NEW: Audio/Voice Support ---
+        if (message.type === 'audio' || message.type === 'voice') {
+          console.log(`[Audio] Recebido de ${from}. Processando transcodificação...`);
+          // We indicate to the user we are "listening"
+          await sendWhatsAppMessage(from, "🎧 *Ouvindo seu áudio...*", value?.metadata?.phone_number_id);
+
+          const audioData = message.audio || message.voice;
+          if (audioData?.id) {
+            // We'll try to get the transcription via AI fallback later by passing a flag
+            msgBody = `[AUDIO_MESSAGE_ID:${audioData.id}]`;
+          }
+        }
 
         console.log(`Processing message from ${from}: ${msgBody}`);
 
         // Await processing to ensure Vercel doesn't terminate the function early
-        await processWhatsAppMessage(from, msgBody, msgId, body);
+        const phone_number_id = value?.metadata?.phone_number_id;
+        await processWhatsAppMessage(from, msgBody, msgId, body, phone_number_id);
       }
 
       return res.status(200).json({ status: "success" });
@@ -160,40 +174,29 @@ app.post("/api/webhook/whatsapp", async (req, res) => {
   res.status(200).json({ status: "success" });
 });
 
-async function processWhatsAppMessage(from: string, msgBody: string, msgId: string, rawData: any) {
-  const phone_number_id = rawData.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
-
+async function processWhatsAppMessage(from: string, msgBody: string, msgId: string, rawPayload: any, phone_number_id?: string) {
   try {
-    // 1. Log to system_logs that processing started
-    await supabase.from("system_logs").insert([{
-      event_type: "processing_start",
-      payload: { from, msgBody, msgId, phone_number_id }
-    }]);
+    // 1. Initial Receipt Log
+    const { data: logData, error: logInitialError } = await supabase.from("whatsapp_messages").insert([
+      {
+        whatsapp_id: msgId,
+        sender_number: from,
+        message_text: msgBody,
+        raw_data: rawPayload,
+        status: 'pending_confirmation'
+      }
+    ]).select();
 
-    // 2. Insert into whatsapp_messages
-    const { data: logData, error: logError } = await supabase
-      .from("whatsapp_messages")
-      .insert([
-        {
-          whatsapp_id: msgId,
-          sender_number: from,
-          message_text: msgBody,
-          raw_data: rawData,
-          status: "received",
-        },
-      ])
-      .select();
-
-    if (logError) {
-      if (logError.code === "23505") { // Unique violation
+    if (logInitialError) {
+      if (logInitialError.code === "23505") { // Unique violation
         console.log(`[WebHook] Meta retry detected for msgId: ${msgId}. Ignoring redundant request.`);
         return;
       }
       await supabase.from("system_logs").insert([{
         event_type: "db_error_messages",
-        payload: { error: logError, msgId }
+        payload: { error: logInitialError, msgId }
       }]);
-      console.error("Erro ao logar mensagem no Supabase:", logError);
+      console.error("Erro ao logar mensagem no Supabase:", logInitialError);
       return;
     }
 
@@ -273,11 +276,20 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
   let method = extraction.full ? 'structured_parser' : 'hybrid';
   let interpretation = { type: intent, data: extraction.data, confidence: extraction.full ? 1.0 : 0.5 };
 
-  // Layer 3: AI Fallback / Refinement
-  if (!extraction.full || needsBeautifying) {
-    console.log(`[V2] ${needsBeautifying ? 'Beautifying title/desc...' : 'Layer 2 incompleta. Chamando IA Fallback...'}`);
-    const aiResult = await interpretMessage(text, intent, currentDateTime);
-    method = needsBeautifying ? 'structured+ai_refinement' : 'ai_fallback';
+  // Layer 3: AI Fallback / Refinement / Audio Transcription
+  if (!extraction.full || needsBeautifying || text.startsWith("[AUDIO_MESSAGE_ID:")) {
+    console.log(`[V2] ${needsBeautifying ? 'Beautifying title/desc...' : 'Chamando IA Fallback/Audio...'}`);
+
+    let audioData: { data: string, mimeType: string } | undefined = undefined;
+    const audioMatch = text.match(/\[AUDIO_MESSAGE_ID:(.+)\]/);
+
+    if (audioMatch) {
+      const mediaId = audioMatch[1];
+      audioData = await downloadWhatsAppMedia(mediaId);
+    }
+
+    const aiResult = await interpretMessage(text, intent, currentDateTime, audioData);
+    method = audioMatch ? 'ai_audio_transcription' : (needsBeautifying ? 'structured+ai_refinement' : 'ai_fallback');
 
     // Merge: Keep parser's core data (amount, dates) but take AI's descriptions
     interpretation = {
@@ -285,6 +297,7 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
       data: {
         ...aiResult.data,
         amount: extraction.data.amount || aiResult.data.amount,
+        type: extraction.data.type || aiResult.data.type,
         date: extraction.data.date || aiResult.data.date,
         start_time: extraction.data.start_time || aiResult.data.start_time,
       }
@@ -430,36 +443,75 @@ function extractStructuredData(text: string, currentDateTime: string) {
   const hasFinance = !!(data.amount && cleanDesc.length > 2);
   const hasEvent = !!(cleanDesc.length > 2 && hasTime);
 
-  return { data, full: hasFinance || hasEvent };
+  // DETECT INCOME (RECEITA)
+  const isIncome = lowerText.includes("recebi") || lowerText.includes("entrada") || lowerText.includes("ganhei") || lowerText.includes("recebimento");
+  data.type = isIncome ? 'income' : 'expense';
+
+  return { data, full: (hasFinance || hasEvent) && !!data.type };
+}
+
+// Media Handling Helper
+async function downloadWhatsAppMedia(mediaId: string): Promise<{ data: string, mimeType: string } | undefined> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!token) {
+    console.error("WHATSAPP_ACCESS_TOKEN missing for media download");
+    return undefined;
+  }
+
+  try {
+    // 1. Get Media URL from Meta
+    const urlResponse = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const mediaInfo = await urlResponse.json();
+    if (!mediaInfo.url) return undefined;
+
+    // 2. Download the actual file bytes
+    const mediaResponse = await fetch(mediaInfo.url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const arrayBuffer = await mediaResponse.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    return {
+      data: buffer.toString("base64"),
+      mimeType: mediaInfo.mime_type || "audio/ogg"
+    };
+  } catch (err) {
+    console.error("Error downloading media:", err);
+    return undefined;
+  }
 }
 
 // AI Interpretation Logic
-async function interpretMessage(text: string, suggestedIntent: string = "unknown", currentDateTime: string) {
+async function interpretMessage(text: string, suggestedIntent: string = "unknown", currentDateTime: string, audioData?: { data: string, mimeType: string }) {
   const modelName = "gemini-2.0-flash-lite";
-  console.log(`[Unlimited AI] Interpretando: ${text} | Sugestão: ${suggestedIntent} | Agora: ${currentDateTime}`);
+  console.log(`[Unlimited AI] Interpretando: ${text} | Sugestão: ${suggestedIntent} | Agora: ${currentDateTime} | Audio: ${!!audioData}`);
 
-  // 1. FAST REGEX - (Now with better Brazilian Portugeuse support)
-  const financeMatch = text.match(/(?:gastei|paguei|recebi|comprei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais)?(?:\s+(?:hoje|ontem|amanhã|agora|já))?\s*(?:com|de|em|no|na|pelo|pela|num|numa)\s+(.+)/i);
-  if (financeMatch) {
-    const isExpense = !text.toLowerCase().includes("recebi");
-    return {
-      type: "finance",
-      confidence: 0.98,
-      data: {
-        description: financeMatch[2].trim().split(/\s+hoje|\s+agora/i)[0], // Clean trailing time words
-        amount: parseFloat(financeMatch[1].replace(',', '.')),
-        type: isExpense ? "expense" : "income",
-        category: "Outros",
-        date: new Date().toISOString()
-      }
-    };
+  // 1. FAST REGEX - (Only for text)
+  if (!audioData) {
+    const financeMatch = text.match(/(?:gastei|paguei|recebi|comprei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais)?(?:\s+(?:hoje|ontem|amanhã|agora|já))?\s*(?:com|de|em|no|na|pelo|pela|num|numa)\s+(.+)/i);
+    if (financeMatch) {
+      const isExpense = !text.toLowerCase().includes("recebi");
+      return {
+        type: "finance",
+        confidence: 0.98,
+        data: {
+          description: financeMatch[2].trim().split(/\s+hoje|\s+agora/i)[0], // Clean trailing time words
+          amount: parseFloat(financeMatch[1].replace(',', '.')),
+          type: isExpense ? "expense" : "income",
+          category: "Outros",
+          date: new Date().toISOString()
+        }
+      };
+    }
   }
 
   // 2. AI POWERED FALLBACK (Unlimited Logic)
   const model = genAI.getGenerativeModel({ model: modelName });
 
   try {
-    const prompt = `Você é um assistente pessoal brasileiro de ALTA INTELIGÊNCIA. 
+    let prompt = `Você é um assistente pessoal brasileiro de ALTA INTELIGÊNCIA. 
     Sua missão é extrair dados de uma mensagem do WhatsApp para um sistema de finanças e agenda.
 
     DADOS ATUAIS (USE ISSO PARA DATAS RELATIVAS):
@@ -467,10 +519,11 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
 
     REGRAS DE OURO:
     1. FINANCEIRO: "paguei", "gastei", "reais", "$".
-    2. AGENDA: "reunião", "marcar", "agendar", "visita".
-    3. ANOTAÇÃO: Se for apenas um lembrete sem data/valor (ex: "Anotar que o documento está na gaveta", "Lembrar de comprar leite").
-    4. ATUALIZAÇÃO: Se o usuário disser "Mude isso para...", interprete como se ele estivesse corrigindo um comando anterior.
-    5. "hoje", "amanhã", "ontem" devem ser convertidos para a data real baseada em ${currentDateTime}.
+    2. INCOME (RECEITA): Se o usuário disse "recebi", "ganhei" ou "entrada". SEMPRE use "type": "income".
+    3. AGENDA: "reunião", "marcar", "agendar", "visita".
+    4. ANOTAÇÃO: Se for apenas um lembrete sem data/valor.
+    5. ATUALIZAÇÃO: Se o usuário disser "Mude isso para...", interprete como se ele estivesse corrigindo um comando anterior.
+    6. "hoje", "amanhã", "ontem" devem ser convertidos para a data real baseada em ${currentDateTime}.
 
     SAÍDA (APENAS JSON):
     {
@@ -485,6 +538,19 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
     }
 
     MENSAGEM DO USUÁRIO: "${text}"`;
+
+    if (audioData) {
+      prompt = `Transcreva e interprete este áudio do WhatsApp. ${prompt}`;
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: audioData
+        }
+      ]);
+      const rawResponse = result.response.text();
+      const cleanJson = rawResponse.match(/\{[\s\S]*\}/)?.[0] || rawResponse;
+      return JSON.parse(cleanJson);
+    }
 
     const result = await model.generateContent(prompt);
     const rawResponse = result.response.text();
