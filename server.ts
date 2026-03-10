@@ -164,6 +164,10 @@ async function processWhatsAppMessage(from: string, msgBody: string, msgId: stri
       .select();
 
     if (logError) {
+      if (logError.code === "23505") { // Unique violation
+        console.log(`[WebHook] Meta retry detected for msgId: ${msgId}. Ignoring redundant request.`);
+        return;
+      }
       await supabase.from("system_logs").insert([{
         event_type: "db_error_messages",
         payload: { error: logError, msgId }
@@ -291,48 +295,71 @@ async function sendWhatsAppMessage(to: string, text: string, phone_number_id: st
 // AI Interpretation Logic
 async function interpretMessage(text: string) {
   const modelName = "gemini-2.0-flash-lite";
-  console.log(`Using model: ${modelName} to interpret: ${text}`);
-  const model = genAI.getGenerativeModel({ model: modelName });
+  console.log(`Using model: ${modelName} (API v1) to interpret: ${text}`);
+  const model = genAI.getGenerativeModel({ model: modelName }, { apiVersion: "v1" });
 
-  const prompt = `Você é um secretário financeiro de alta precisão. Sua tarefa é extrair dados de uma mensagem em português.
-  Mensagem: "${text}"
-  
-  REGRAS:
-  1. Identifique se é um lançamento FINANCEIRO (gastos, ganhos) ou um COMPROMISSO (reunião, consulta).
-  2. Para FINANCEIRO:
-     - tipo: "expense" (saída/gasto) ou "income" (entrada/ganho).
-     - valor: extraia apenas o número.
-     - categoria: use categorias padrão (Alimentação, Transporte, Lazer, Saúde, Salário, Investimentos, Aluguel, Outros).
-     - descrição: breve descrição.
-  3. Para COMPROMISSO:
-     - título: Nome curto.
-     - data_inicio: ISO string (assume hoje se não houver data, ou resolva referências como "amanhã").
-  4. Se não tiver certeza, coloque confidence < 0.7.
-  
-  Retorne no formato JSON com:
-  {
-    "type": "finance" | "event" | "unknown",
-    "confidence": 0.0 a 1.0,
-    "data": { ... }
-  }`;
+  try {
+    const prompt = `Você é um secretário financeiro de alta precisão. Sua tarefa é extrair dados de uma mensagem em português.
+    Mensagem: "${text}"
+    
+    REGRAS:
+    1. Identifique se é um lançamento FINANCEIRO (gastos, ganhos) ou um COMPROMISSO (reunião, consulta).
+    2. Para FINANCEIRO:
+       - tipo: "expense" (saída/gasto) ou "income" (entrada/ganho).
+       - valor: extraia apenas o número.
+       - categoria: use categorias padrão (Alimentação, Transporte, Lazer, Saúde, Salário, Investimentos, Aluguel, Outros).
+       - descrição: breve descrição.
+    3. Para COMPROMISSO:
+       - título: Nome curto.
+       - data_inicio: ISO string (assume hoje se não houver data, ou resolva referências como "amanhã").
+    4. Se não tiver certeza, coloque confidence < 0.7.
+    
+    Retorne no formato JSON com:
+    {
+      "type": "finance" | "event" | "unknown",
+      "confidence": 0.0 a 1.0,
+      "data": { ... }
+    }`;
 
-  const result = await model.generateContent({
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: SchemaType.OBJECT,
-        properties: {
-          type: { type: SchemaType.STRING },
-          confidence: { type: SchemaType.NUMBER },
-          data: { type: SchemaType.OBJECT }
-        },
-        required: ["type", "confidence", "data"]
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: {
+            type: { type: SchemaType.STRING },
+            confidence: { type: SchemaType.NUMBER },
+            data: { type: SchemaType.OBJECT }
+          },
+          required: ["type", "confidence", "data"]
+        }
       }
-    }
-  });
+    });
 
-  return JSON.parse(result.response.text());
+    return JSON.parse(result.response.text());
+  } catch (error: any) {
+    console.warn("AI failed, attempting regex fallback:", error.message);
+
+    // Regex fallback for: "Gastei 15 reais com lanche"
+    const financeMatch = text.match(/(?:gastei|recebi)\s+(\d+(?:[.,]\d+)?)\s+reais\s+(?:com|de)\s+(.+)/i);
+    if (financeMatch) {
+      const isExpense = text.toLowerCase().includes("gastei");
+      return {
+        type: "finance",
+        confidence: 0.85,
+        data: {
+          description: financeMatch[2].trim(),
+          amount: parseFloat(financeMatch[1].replace(',', '.')),
+          type: isExpense ? "expense" : "income",
+          category: "Outros",
+          date: new Date().toISOString()
+        }
+      };
+    }
+
+    throw error;
+  }
 }
 
 // Export app for Vercel
