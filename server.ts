@@ -291,14 +291,26 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
         reply = "🤔 Entendi o valor, mas com o que você gastou? (Ex: 'na padaria')";
       } else {
         const { error } = await supabase.from("transactions").insert([{
-          description, amount, type: type || 'expense', date: date || new Date().toISOString(), whatsapp_message_id: msgId
+          description,
+          amount,
+          type: type || 'expense',
+          category: interpretation.data.category || "Outros", // FIXED: Added missing required field
+          date: date || new Date().toISOString(),
+          whatsapp_message_id: msgId
         }]);
         if (!error) {
           status = 'processed';
           reply = `✅ *Registro salvo!*\n💰 R$ ${amount} - ${description}`;
         } else {
           status = 'error';
+          console.error("Erro no insert transactions:", error);
           reply = "❌ Erro ao salvar no banco de dados.";
+
+          // Log specific DB error
+          await supabase.from("system_logs").insert([{
+            event_type: "db_error_v2",
+            payload: { error, msgId, amount, description }
+          }]);
         }
       }
     } else if (interpretation.type === 'event') {
