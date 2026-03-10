@@ -40,12 +40,20 @@ export default function TransactionModal({ isOpen, onClose, onSave, transaction 
     e.preventDefault();
     setLoading(true);
 
-    const transactionData = {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      alert('Sessão expirada. Por favor, faça login novamente.');
+      setLoading(false);
+      return;
+    }
+
+    const transactionData: any = {
       description,
       amount: parseFloat(amount),
       type,
       category,
       date: new Date(date).toISOString(),
+      user_id: session.user.id
     };
 
     try {
@@ -53,7 +61,8 @@ export default function TransactionModal({ isOpen, onClose, onSave, transaction 
         const { error } = await supabase
           .from('transactions')
           .update(transactionData)
-          .eq('id', transaction.id);
+          .eq('id', transaction.id)
+          .eq('user_id', session.user.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
@@ -78,7 +87,7 @@ export default function TransactionModal({ isOpen, onClose, onSave, transaction 
           <h3 className="text-xl font-bold text-slate-800">
             {transaction ? 'Editar Lançamento' : 'Novo Lançamento'}
           </h3>
-          <button 
+          <button
             onClick={onClose}
             className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"
           >
@@ -132,8 +141,8 @@ export default function TransactionModal({ isOpen, onClose, onSave, transaction 
                 onClick={() => setType('income')}
                 className={cn(
                   "py-3 rounded-2xl font-bold transition-all border-2",
-                  type === 'income' 
-                    ? "bg-emerald-50 border-emerald-500 text-emerald-600" 
+                  type === 'income'
+                    ? "bg-emerald-50 border-emerald-500 text-emerald-600"
                     : "bg-white border-slate-100 text-slate-400 hover:bg-slate-50"
                 )}
               >
@@ -144,8 +153,8 @@ export default function TransactionModal({ isOpen, onClose, onSave, transaction 
                 onClick={() => setType('expense')}
                 className={cn(
                   "py-3 rounded-2xl font-bold transition-all border-2",
-                  type === 'expense' 
-                    ? "bg-rose-50 border-rose-500 text-rose-600" 
+                  type === 'expense'
+                    ? "bg-rose-50 border-rose-500 text-rose-600"
                     : "bg-white border-slate-100 text-slate-400 hover:bg-slate-50"
                 )}
               >

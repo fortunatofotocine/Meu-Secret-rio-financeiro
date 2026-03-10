@@ -19,7 +19,14 @@ export default function Financeiro() {
 
   async function fetchTransactions() {
     setLoading(true);
-    let query = supabase.from('transactions').select('*').order('date', { ascending: false });
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    let query = supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .order('date', { ascending: false });
 
     const { data, error } = await query;
     if (data) setTransactions(data);
@@ -29,7 +36,15 @@ export default function Financeiro() {
   async function handleDelete(id: string) {
     if (!confirm('Tem certeza que deseja excluir esta transação?')) return;
 
-    const { error } = await supabase.from('transactions').delete().eq('id', id);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const { error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', session.user.id);
+
     if (!error) {
       fetchTransactions();
     } else {
