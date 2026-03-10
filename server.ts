@@ -280,7 +280,7 @@ async function sendWhatsAppMessage(to: string, text: string, phone_number_id: st
 
 // AI Interpretation Logic
 async function interpretMessage(text: string) {
-  const modelName = "gemini-1.5-flash-latest";
+  const modelName = "gemini-2.0-flash";
   console.log(`Using model: ${modelName} to interpret: ${text}`);
   const model = genAI.getGenerativeModel({ model: modelName });
 
