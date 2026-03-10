@@ -184,34 +184,31 @@ async function processWhatsAppMessage(from: string, msgBody: string, msgId: stri
 
     if (msgBody) {
       const lowerMsg = msgBody.toLowerCase();
-
-      // Intent: FINANCE
-      if (lowerMsg.includes("gastei") || lowerMsg.includes("paguei") || lowerMsg.includes("comprei") || lowerMsg.includes("recebi")) {
-        intentDetected = "finance";
-        console.log(`[Intent] FINANCE detectado por palavra-chave para: ${msgBody}`);
-      }
-      // Intent: AGENDA
-      else if (lowerMsg.includes("agendar") || lowerMsg.includes("agenda") || lowerMsg.includes("marcar") || lowerMsg.includes("reunião") || lowerMsg.includes("lembrete")) {
-        intentDetected = "event";
-        console.log(`[Intent] AGENDA detectado por palavra-chave para: ${msgBody}`);
-      }
+      const currentDateTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
       try {
-        const interpretation = await interpretMessage(msgBody, intentDetected);
+        // High-level Intent hint for the AI
+        if (lowerMsg.includes("gastei") || lowerMsg.includes("paguei") || lowerMsg.includes("comprei") || lowerMsg.includes("recebi")) {
+          intentDetected = "finance";
+        } else if (lowerMsg.includes("agendar") || lowerMsg.includes("agenda") || lowerMsg.includes("marcar") || lowerMsg.includes("reunião") || lowerMsg.includes("lembrete")) {
+          intentDetected = "event";
+        }
+
+        const interpretation = await interpretMessage(msgBody, intentDetected, currentDateTime);
 
         await supabase.from("system_logs").insert([{
           event_type: "ai_interpretation",
-          payload: { interpretation, msgId }
+          payload: { interpretation, msgId, currentDateTime }
         }]);
 
-        if (interpretation.confidence > 0.6) {
+        if (interpretation.confidence > 0.45) { // Lowered slightly to trust the improved AI prompt
           if (interpretation.type === "finance") {
             const { error: transError } = await supabase.from("transactions").insert([
               {
                 description: interpretation.data.description,
                 amount: interpretation.data.amount,
                 type: interpretation.data.type,
-                category: interpretation.data.category,
+                category: interpretation.data.category || "Outros",
                 date: interpretation.data.date || new Date().toISOString(),
                 whatsapp_message_id: internalMessageId
               }
@@ -220,16 +217,16 @@ async function processWhatsAppMessage(from: string, msgBody: string, msgId: stri
             if (transError) {
               await supabase.from("system_logs").insert([{ event_type: "db_error_transaction", payload: { error: transError, msgId } }]);
               await supabase.from("whatsapp_messages").update({ status: "error" }).eq("id", internalMessageId);
-              responseText = "❌ Erro ao salvar o gasto no banco de dados.";
+              responseText = "❌ Erro ao salvar o registro financeiro.";
             } else {
               await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("id", internalMessageId);
-              responseText = `✅ *Registro salvo: R$ ${interpretation.data.amount} - ${interpretation.data.description}*`;
+              responseText = `✅ *Lançamento salvo!* \n💰 R$ ${interpretation.data.amount} - ${interpretation.data.description}`;
             }
           } else if (interpretation.type === "event") {
             const { error: eventError } = await supabase.from("events").insert([
               {
                 title: interpretation.data.title,
-                description: interpretation.data.description,
+                description: interpretation.data.description || msgBody,
                 start_time: interpretation.data.start_time,
                 end_time: interpretation.data.end_time || new Date(new Date(interpretation.data.start_time).getTime() + 60 * 60 * 1000).toISOString(),
                 whatsapp_message_id: internalMessageId
@@ -239,29 +236,25 @@ async function processWhatsAppMessage(from: string, msgBody: string, msgId: stri
             if (eventError) {
               await supabase.from("system_logs").insert([{ event_type: "db_error_event", payload: { error: eventError, msgId } }]);
               await supabase.from("whatsapp_messages").update({ status: "error" }).eq("id", internalMessageId);
-              responseText = "❌ Erro ao agendar evento no banco de dados.";
+              responseText = "❌ Erro ao agendar seu compromisso.";
             } else {
               await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("id", internalMessageId);
               const dataFormatada = new Date(interpretation.data.start_time).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-              responseText = `📅 *Evento agendado: ${interpretation.data.title} - ${dataFormatada}*`;
+              responseText = `📅 *Agenda: ${interpretation.data.title} às ${dataFormatada}*`;
             }
+          } else {
+            // interpretation type is unknown
+            await supabase.from("whatsapp_messages").update({ status: "pending_confirmation", interpretation }).eq("id", internalMessageId);
+            responseText = interpretation.reply || "🤔 Não entendi se isso é um gasto ou compromisso. Pode detalhar?";
           }
-        } else if (intentDetected !== "unknown") {
-          await supabase.from("whatsapp_messages").update({
-            status: "pending_confirmation",
-            interpretation: interpretation
-          }).eq("id", internalMessageId);
-          responseText = "🤔 Entendi que você quer " + (intentDetected === "finance" ? "registrar um gasto" : "marcar um compromisso") + ", mas não consegui extrair todos os detalhes. Pode repetir de forma simples?";
         } else {
-          await supabase.from("whatsapp_messages").update({
-            status: "pending_confirmation",
-            interpretation: interpretation
-          }).eq("id", internalMessageId);
+          await supabase.from("whatsapp_messages").update({ status: "pending_confirmation", interpretation }).eq("id", internalMessageId);
+          responseText = interpretation.reply || "🤔 Fiquei na dúvida. Foi um gasto ou algo na agenda?";
         }
       } catch (procErr: any) {
         console.error("Erro no processamento:", procErr);
         await supabase.from("whatsapp_messages").update({ status: "error" }).eq("id", internalMessageId);
-        responseText = "❌ Ocorreu um erro técnico ao processar sua mensagem. Tente novamente mais tarde.";
+        responseText = "❌ Tive um problema técnico. Pode tentar de novo?";
       }
     }
 
@@ -309,21 +302,19 @@ async function sendWhatsAppMessage(to: string, text: string, phone_number_id: st
 }
 
 // AI Interpretation Logic
-async function interpretMessage(text: string, hintedType: string = "unknown") {
+async function interpretMessage(text: string, suggestedIntent: string = "unknown", currentDateTime: string) {
   const modelName = "gemini-2.0-flash-lite";
-  console.log(`Using model: ${modelName} to interpret: ${text} | Hint: ${hintedType}`);
+  console.log(`[Unlimited AI] Interpretando: ${text} | Sugestão: ${suggestedIntent} | Agora: ${currentDateTime}`);
 
-  // REGEX FALLBACKS FIRST (to save quota and be instant)
-
-  // 1. Finance Regex: "Gastei 10 reais com café", "paguei 5 na padaria"
-  const financeMatch = text.match(/(?:gastei|paguei|recebi|comprei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s+(?:reais\s+)?(?:com|de|em|no|na|no|num|nesta|pelo|pela)\s+(.+)/i);
+  // 1. FAST REGEX - (Now with better Brazilian Portugeuse support)
+  const financeMatch = text.match(/(?:gastei|paguei|recebi|comprei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais)?(?:\s+(?:hoje|agora|já))?\s*(?:com|de|em|no|na|pelo|pela|num|numa)\s+(.+)/i);
   if (financeMatch) {
     const isExpense = !text.toLowerCase().includes("recebi");
     return {
       type: "finance",
-      confidence: 0.95,
+      confidence: 0.98,
       data: {
-        description: financeMatch[2].trim(),
+        description: financeMatch[2].trim().split(/\s+hoje|\s+agora/i)[0], // Clean trailing time words
         amount: parseFloat(financeMatch[1].replace(',', '.')),
         type: isExpense ? "expense" : "income",
         category: "Outros",
@@ -332,60 +323,51 @@ async function interpretMessage(text: string, hintedType: string = "unknown") {
     };
   }
 
-  // 2. Agenda Regex: "Marcar reunião 10/03 as 15:00" or "Marque na agenda 10/03/2026 visita na roça com o vereador às 7h"
-  const agendaMatch = text.match(/(?:agendar|marcar|agenda|lembrete)\s*(?:na agenda)?\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+?)\s+(?:as|às|nos?)\s+(\d{1,2}(?::\d{2})?\s*(?:h|horas?))/i);
-  if (agendaMatch) {
-    const rawDate = agendaMatch[1];
-    const title = agendaMatch[2];
-    const rawTime = agendaMatch[3].replace(/[^\d:]/g, '');
-
-    // Simple date normalization
-    let [day, month, year] = rawDate.split('/');
-    if (!year) year = new Date().getFullYear().toString();
-    if (year.length === 2) year = "20" + year;
-    const startTimeStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${rawTime.padStart(2, '0')}:00:00`;
-
-    return {
-      type: "event",
-      confidence: 0.9,
-      data: {
-        title: title.trim(),
-        description: text,
-        start_time: startTimeStr,
-      }
-    };
-  }
-
-  // AI FALLBACK
+  // 2. AI POWERED FALLBACK (Unlimited Logic)
   const model = genAI.getGenerativeModel({ model: modelName });
 
   try {
-    const prompt = `Você é um secretário financeiro e assistente de agenda de alta precisão.
-    Sua tarefa é extrair dados da mensagem em português.
-    
-    Contexto: O usuário quer ${hintedType === 'finance' ? 'registrar um gasto/ganho' : hintedType === 'event' ? 'marcar um compromisso' : 'fazer algo'}.
-    Mensagem: "${text}"
-    
-    REGRAS:
-    1. Retorne APENAS um objeto JSON.
-    2. Se for FINANCEIRO: type=finance, data possui {description, amount, type (expense/income), category, date}.
-    3. Se for COMPROMISSO: type=event, data possui {title, description, start_time (ISO string), end_time (ISO string)}.
-    4. Se for "visita na roça 10/03/2026 as 7h", start_time deve ser "2026-03-10T07:00:00Z".
-    
-    Responda no formato:
+    const prompt = `Você é um assistente pessoal brasileiro de ALTA INTELIGÊNCIA. 
+    Sua missão é extrair dados de uma mensagem do WhatsApp para um sistema de finanças e agenda.
+
+    DADOS ATUAIS (USE ISSO PARA DATAS RELATIVAS):
+    Agora é: ${currentDateTime} (Horário de Brasília)
+
+    REGRAS DE OURO:
+    1. Se o usuário disser "paguei... na padaria", isso é FINANCEIRO (expense), não agenda.
+    2. Se ele disser "Marcar reunião", isso é AGENDA (event).
+    3. Se houver dúvida entre gasto e agenda, priorize FINANCEIRO se houver valores monetários.
+    4. "reais" ou "$" indica FINANCEIRO.
+    5. "hoje", "amanhã", "ontem" devem ser convertidos para a data real baseada em ${currentDateTime}.
+
+    SAÍDA (APENAS JSON):
     {
       "type": "finance" | "event" | "unknown",
       "confidence": 0.0 a 1.0,
-      "data": { ... }
-    }`;
+      "data": { 
+        // Se finance: description, amount (numbers), type (expense/income), category, date (ISO)
+        // Se event: title, description, start_time (ISO), end_time (ISO)
+      },
+      "reply": "Uma resposta curta em português confirmando ou perguntando algo"
+    }
 
-    // Note: Removed v1 and responseSchema due to 400 errors in this specific environment
+    MENSAGEM DO USUÁRIO: "${text}"`;
+
     const result = await model.generateContent(prompt);
-    const content = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(content);
+    const rawResponse = result.response.text();
+    const cleanJson = rawResponse.match(/\{[\s\S]*\}/)?.[0] || rawResponse;
+    const interpretation = JSON.parse(cleanJson);
+
+    // AI correction: "hoje na padaria" is often misclassified as "event" if it sees "agenda" elsewhere
+    if (text.toLowerCase().includes("reais") && interpretation.type === "event") {
+      interpretation.type = "finance";
+      interpretation.confidence = 0.8;
+    }
+
+    return interpretation;
   } catch (error: any) {
-    console.error("AI Fallback failed:", error.message);
-    return { type: "unknown", confidence: 0, data: {} };
+    console.error("Unlimited AI failed:", error.message);
+    return { type: "unknown", confidence: 0, data: {}, reply: "Tive um lapso de memória! Pode repetir?" };
   }
 }
 
