@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { TrendingUp, TrendingDown, Wallet, Calendar, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import { supabase, type Transaction, type Event } from '../lib/supabase';
+import { TrendingUp, TrendingDown, Wallet, Calendar, ArrowUpRight, ArrowDownRight, Edit3, Check, X, AlertCircle } from 'lucide-react';
+import { supabase, type Transaction, type Event, type Profile } from '../lib/supabase';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<Event[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isEditingIncome, setIsEditingIncome] = useState(false);
+  const [newIncome, setNewIncome] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -22,19 +25,46 @@ export default function Dashboard() {
     const start = startOfMonth(now).toISOString();
     const end = endOfMonth(now).toISOString();
 
-    const [transRes, eventsRes] = await Promise.all([
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const [transRes, eventsRes, profileRes] = await Promise.all([
       supabase.from('transactions').select('*').gte('date', start).lte('date', end).order('date', { ascending: false }),
-      supabase.from('events').select('*').gte('start_time', now.toISOString()).order('start_time', { ascending: true }).limit(5)
+      supabase.from('events').select('*').gte('start_time', now.toISOString()).order('start_time', { ascending: true }).limit(5),
+      session ? supabase.from('profiles').select('*').eq('id', session.user.id).single() : Promise.resolve({ data: null })
     ]);
 
     if (transRes.data) setTransactions(transRes.data);
     if (eventsRes.data) setUpcomingEvents(eventsRes.data);
+    if (profileRes.data) {
+      setProfile(profileRes.data);
+      setNewIncome(profileRes.data.monthly_income.toString());
+    }
     setLoading(false);
   }
 
-  const income = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+  async function handleUpdateIncome() {
+    if (!profile) return;
+    const amount = parseFloat(newIncome);
+    if (isNaN(amount)) return;
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ monthly_income: amount })
+      .eq('id', profile.id);
+
+    if (!error) {
+      setProfile({ ...profile, monthly_income: amount });
+      setIsEditingIncome(false);
+    }
+  }
+
+  const incomeFromTransactions = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
   const expenses = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
-  const balance = income - expenses;
+
+  // O salário mensal definido pelo usuário + rendas extras lançadas
+  const totalMonthlyBudget = (profile?.monthly_income || 0) + incomeFromTransactions;
+  const remainingBudget = totalMonthlyBudget - expenses;
+  const isOverBudget = remainingBudget < 0;
 
   const categoryData = transactions
     .filter(t => t.type === 'expense')
@@ -65,40 +95,85 @@ export default function Dashboard() {
           <h2 className="text-2xl font-bold text-slate-800">Visão Geral</h2>
           <p className="text-slate-500">Bem-vindo ao seu secretário financeiro pessoal.</p>
         </div>
-        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-slate-400" />
-          <span className="text-sm font-medium text-slate-600">
-            {format(new Date(), "MMMM yyyy", { locale: ptBR })}
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-slate-400" />
+            <span className="text-sm font-medium text-slate-600">
+              {format(new Date(), "MMMM yyyy", { locale: ptBR })}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard 
-          title="Saldo Atual" 
-          value={balance} 
-          icon={Wallet} 
-          color="indigo" 
-          trend={balance >= 0 ? 'up' : 'down'}
+        {/* Renda Mensal Card */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="p-3 rounded-2xl bg-blue-50 text-blue-600">
+              <TrendingUp className="w-6 h-6" />
+            </div>
+            {!isEditingIncome ? (
+              <button
+                onClick={() => setIsEditingIncome(true)}
+                className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
+                title="Editar Salário"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+            ) : null}
+          </div>
+
+          <div>
+            <p className="text-sm font-medium text-slate-500 mb-1">Meu Salário Base</p>
+            {isEditingIncome ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="number"
+                  value={newIncome}
+                  onChange={(e) => setNewIncome(e.target.value)}
+                  className="w-full bg-slate-50 border border-indigo-100 rounded-lg px-2 py-1 text-lg font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  autoFocus
+                />
+                <button onClick={handleUpdateIncome} className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600">
+                  <Check className="w-4 h-4" />
+                </button>
+                <button onClick={() => setIsEditingIncome(false)} className="p-1.5 bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <h4 className="text-2xl font-bold text-slate-800">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(profile?.monthly_income || 0)}
+              </h4>
+            )}
+          </div>
+        </motion.div>
+
+        <StatCard
+          title="Saídas do Mês"
+          value={expenses}
+          icon={TrendingDown}
+          color="rose"
         />
-        <StatCard 
-          title="Entradas" 
-          value={income} 
-          icon={TrendingUp} 
-          color="emerald" 
+
+        <StatCard
+          title="Status do Orçamento"
+          value={remainingBudget}
+          icon={isOverBudget ? AlertCircle : Wallet}
+          color={isOverBudget ? "rose" : "emerald"}
+          isStatus
+          statusText={isOverBudget ? "No Vermelho!" : "No Azul"}
         />
-        <StatCard 
-          title="Saídas" 
-          value={expenses} 
-          icon={TrendingDown} 
-          color="rose" 
-        />
-        <StatCard 
-          title="Lucro do Mês" 
-          value={balance} 
-          icon={TrendingUp} 
-          color="amber" 
+
+        <StatCard
+          title="Sobrou no Bolso"
+          value={remainingBudget}
+          icon={TrendingUp}
+          color="amber"
           isProfit
         />
       </div>
@@ -116,7 +191,7 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                <Tooltip 
+                <Tooltip
                   cursor={{ fill: '#f8fafc' }}
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                 />
@@ -216,7 +291,7 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, color, trend, isProfit }: any) {
+function StatCard({ title, value, icon: Icon, color, trend, isProfit, isStatus, statusText }: any) {
   const colors: any = {
     indigo: "bg-indigo-50 text-indigo-600",
     emerald: "bg-emerald-50 text-emerald-600",
@@ -225,15 +300,23 @@ function StatCard({ title, value, icon: Icon, color, trend, isProfit }: any) {
   };
 
   return (
-    <motion.div 
+    <motion.div
       whileHover={{ y: -4 }}
-      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
+      className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden"
     >
       <div className="flex items-center justify-between mb-4">
         <div className={cn("p-3 rounded-2xl", colors[color])}>
           <Icon className="w-6 h-6" />
         </div>
-        {trend && (
+        {isStatus && (
+          <div className={cn(
+            "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm",
+            value >= 0 ? "bg-emerald-500 text-white" : "bg-rose-500 text-white animate-pulse"
+          )}>
+            {statusText}
+          </div>
+        )}
+        {trend && !isStatus && (
           <div className={cn(
             "flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold",
             trend === 'up' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
@@ -245,10 +328,17 @@ function StatCard({ title, value, icon: Icon, color, trend, isProfit }: any) {
       </div>
       <div>
         <p className="text-sm font-medium text-slate-500 mb-1">{title}</p>
-        <h4 className="text-2xl font-bold text-slate-800">
+        <h4 className={cn(
+          "text-2xl font-bold",
+          isProfit ? (value >= 0 ? "text-emerald-600" : "text-rose-600") : "text-slate-800"
+        )}>
           {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Math.abs(value))}
         </h4>
       </div>
+
+      {isStatus && value < 0 && (
+        <div className="absolute bottom-0 left-0 w-full h-1 bg-rose-500"></div>
+      )}
     </motion.div>
   );
 }

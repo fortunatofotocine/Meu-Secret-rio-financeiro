@@ -50,3 +50,11 @@ export type FixedExpense = {
   due_day: number;
   active: boolean;
 };
+
+export type Profile = {
+  id: string;
+  created_at: string;
+  whatsapp_number: string;
+  full_name: string;
+  monthly_income: number;
+};
