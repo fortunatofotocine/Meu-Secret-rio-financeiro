@@ -1,6 +1,6 @@
 import express from "express";
 import * as dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
@@ -21,7 +21,7 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", supabaseKey || "placeholder");
 
 // Gemini AI Setup
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 // --- API Routes ---
 
@@ -310,11 +310,11 @@ async function interpretMessage(text: string) {
     generationConfig: {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
+        type: SchemaType.OBJECT,
         properties: {
-          type: { type: Type.STRING },
-          confidence: { type: Type.NUMBER },
-          data: { type: Type.OBJECT }
+          type: { type: SchemaType.STRING },
+          confidence: { type: SchemaType.NUMBER },
+          data: { type: SchemaType.OBJECT }
         },
         required: ["type", "confidence", "data"]
       }
