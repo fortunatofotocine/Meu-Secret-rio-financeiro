@@ -307,7 +307,7 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
   console.log(`[Unlimited AI] Interpretando: ${text} | Sugestão: ${suggestedIntent} | Agora: ${currentDateTime}`);
 
   // 1. FAST REGEX - (Now with better Brazilian Portugeuse support)
-  const financeMatch = text.match(/(?:gastei|paguei|recebi|comprei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais)?(?:\s+(?:hoje|agora|já))?\s*(?:com|de|em|no|na|pelo|pela|num|numa)\s+(.+)/i);
+  const financeMatch = text.match(/(?:gastei|paguei|recebi|comprei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*(?:reais)?(?:\s+(?:hoje|ontem|amanhã|agora|já))?\s*(?:com|de|em|no|na|pelo|pela|num|numa)\s+(.+)/i);
   if (financeMatch) {
     const isExpense = !text.toLowerCase().includes("recebi");
     return {
@@ -355,6 +355,13 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
 
     const result = await model.generateContent(prompt);
     const rawResponse = result.response.text();
+
+    // Debug log the raw AI response
+    await supabase.from("system_logs").insert([{
+      event_type: "ai_raw_response",
+      payload: { raw: rawResponse, text }
+    }]);
+
     const cleanJson = rawResponse.match(/\{[\s\S]*\}/)?.[0] || rawResponse;
     const interpretation = JSON.parse(cleanJson);
 
