@@ -1,0 +1,17 @@
+{
+    "name": "Secretário Financeiro",
+    "short_name": "Financeiro",
+    "description": "Seu assistente financeiro pessoal com integração WhatsApp",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#6366f1",
+    "icons": [
+        {
+            "src": "/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}
