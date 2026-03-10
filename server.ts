@@ -247,7 +247,16 @@ async function processWhatsAppMessage(from: string, msgBody: string, msgId: stri
             }
           }
         } else if (intentDetected !== "unknown") {
+          await supabase.from("whatsapp_messages").update({
+            status: "pending_confirmation",
+            interpretation: interpretation
+          }).eq("id", internalMessageId);
           responseText = "🤔 Entendi que você quer " + (intentDetected === "finance" ? "registrar um gasto" : "marcar um compromisso") + ", mas não consegui extrair todos os detalhes. Pode repetir de forma simples?";
+        } else {
+          await supabase.from("whatsapp_messages").update({
+            status: "pending_confirmation",
+            interpretation: interpretation
+          }).eq("id", internalMessageId);
         }
       } catch (procErr: any) {
         console.error("Erro no processamento:", procErr);
@@ -306,8 +315,8 @@ async function interpretMessage(text: string, hintedType: string = "unknown") {
 
   // REGEX FALLBACKS FIRST (to save quota and be instant)
 
-  // 1. Finance Regex: "Gastei 10 reais com café"
-  const financeMatch = text.match(/(?:gastei|paguei|recebi|comprei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s+(?:reais\s+)?(?:com|de|em|no)\s+(.+)/i);
+  // 1. Finance Regex: "Gastei 10 reais com café", "paguei 5 na padaria"
+  const financeMatch = text.match(/(?:gastei|paguei|recebi|comprei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s+(?:reais\s+)?(?:com|de|em|no|na|no|num|nesta|pelo|pela)\s+(.+)/i);
   if (financeMatch) {
     const isExpense = !text.toLowerCase().includes("recebi");
     return {
