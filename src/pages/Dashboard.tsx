@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Wallet, Calendar, ArrowUpRight, ArrowDownRight, Edit3, Check, X, AlertCircle } from 'lucide-react';
 import { supabase, type Transaction, type Event, type Profile } from '../lib/supabase';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import CategoryDetailsModal from '../components/CategoryDetailsModal';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -18,6 +19,7 @@ export default function Dashboard() {
   const [isEditingIncome, setIsEditingIncome] = useState(false);
   const [newIncome, setNewIncome] = useState('');
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
 
   useEffect(() => {
     fetchData();
@@ -25,13 +27,10 @@ export default function Dashboard() {
 
   async function fetchData() {
     setLoading(true);
-    const now = new Date();
-
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
     const [transRes, eventsRes, profileRes] = await Promise.all([
-      // Fetch ALL transactions for this user
       supabase.from('transactions')
         .select('*')
         .eq('user_id', session.user.id)
@@ -39,7 +38,7 @@ export default function Dashboard() {
       supabase.from('events')
         .select('*')
         .eq('user_id', session.user.id)
-        .gte('start_time', now.toISOString())
+        .gte('start_time', new Date().toISOString())
         .order('start_time', { ascending: true })
         .limit(10),
       supabase.from('profiles').select('*').eq('id', session.user.id).single()
@@ -70,9 +69,11 @@ export default function Dashboard() {
     }
   }
 
-  const now = new Date();
-  const start = startOfMonth(now);
-  const end = endOfMonth(now);
+  const handlePrevMonth = () => setSelectedDate(prev => subMonths(prev, 1));
+  const handleNextMonth = () => setSelectedDate(prev => addMonths(prev, 1));
+
+  const start = startOfMonth(selectedDate);
+  const end = endOfMonth(selectedDate);
 
   // Filtrar para estatísticas mensais
   const monthlyTransactions = transactions.filter(t => {
@@ -91,7 +92,6 @@ export default function Dashboard() {
   // O salário mensal definido pelo usuário + rendas extras lançadas ESTE MÊS
   const totalMonthlyBudget = (profile?.monthly_income || 0) + incomeFromTransactions;
   const remainingBudget = totalMonthlyBudget - expenses;
-  const isOverBudget = remainingBudget < 0;
 
   const categoryData = monthlyTransactions
     .filter(t => t.type === 'expense')
@@ -123,15 +123,28 @@ export default function Dashboard() {
           <p className="text-slate-500">Bem-vindo ao seu secretário financeiro pessoal.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/financeiro')}
-            className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 hover:bg-slate-50 transition-colors"
-          >
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <span className="text-sm font-medium text-slate-600">
-              {format(new Date(), "MMMM yyyy", { locale: ptBR })}
-            </span>
-          </button>
+          <div className="bg-white p-1 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-1">
+            <button
+              onClick={handlePrevMonth}
+              className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-indigo-600 transition-all"
+              title="Mês Anterior"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="px-4 py-2 flex items-center gap-2 min-w-[140px] justify-center">
+              <Calendar className="w-4 h-4 text-indigo-500" />
+              <span className="text-sm font-bold text-slate-700 capitalize">
+                {format(selectedDate, "MMMM yyyy", { locale: ptBR })}
+              </span>
+            </div>
+            <button
+              onClick={handleNextMonth}
+              className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-indigo-600 transition-all"
+              title="Próximo Mês"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -191,7 +204,7 @@ export default function Dashboard() {
         />
 
         <StatCard
-          title="Saídas de Março"
+          title={`Saídas de ${format(selectedDate, 'MMMM', { locale: ptBR })}`}
           value={expenses}
           icon={TrendingDown}
           color="rose"
@@ -280,12 +293,12 @@ export default function Dashboard() {
       {/* Recent Transactions */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="font-bold text-lg text-slate-800">Últimos Lançamentos</h3>
+          <h3 className="font-bold text-lg text-slate-800">Últimos Lançamentos do Período</h3>
           <button
             onClick={() => navigate('/financeiro')}
             className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
           >
-            Ver Todos
+            Ver Todos no Financeiro
           </button>
         </div>
         <div className="overflow-x-auto">
@@ -299,7 +312,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {transactions.slice(0, 10).map((t) => (
+              {monthlyTransactions.slice(0, 10).map((t) => (
                 <tr key={t.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
