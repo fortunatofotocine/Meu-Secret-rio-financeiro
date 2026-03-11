@@ -69,6 +69,36 @@ export default function Financeiro() {
     return matchesSearch && matchesType;
   });
 
+  function handleExport() {
+    if (filteredTransactions.length === 0) {
+      alert('Não há transações para exportar.');
+      return;
+    }
+
+    const headers = ['Descrição', 'Categoria', 'Data', 'Tipo', 'Valor'];
+    const csvRows = [
+      headers.join(';'),
+      ...filteredTransactions.map(t => [
+        t.description.replace(/;/g, ','), // Evitar quebra de colunas
+        t.category,
+        format(new Date(t.date), 'dd/MM/yyyy'),
+        t.type === 'income' ? 'Entrada' : 'Saída',
+        new Intl.NumberFormat('pt-BR', { style: 'decimal', minimumFractionDigits: 2 }).format(t.amount)
+      ].join(';'))
+    ];
+
+    const csvContent = "\ufeff" + csvRows.join('\n'); // Add BOM for Excel UTF-8
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `financeiro_${format(new Date(), 'yyyyMMdd_HHmm')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -116,7 +146,10 @@ export default function Financeiro() {
             color="rose"
           />
         </div>
-        <button className="px-4 py-3 rounded-2xl bg-slate-100 text-slate-600 font-semibold flex items-center justify-center gap-2 hover:bg-slate-200 transition-all">
+        <button
+          onClick={handleExport}
+          className="px-4 py-3 rounded-2xl bg-slate-100 text-slate-600 font-semibold flex items-center justify-center gap-2 hover:bg-slate-200 transition-all"
+        >
           <Download className="w-5 h-5" />
           Exportar
         </button>
