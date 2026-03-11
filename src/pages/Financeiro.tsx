@@ -4,6 +4,8 @@ import { Plus, Search, Download, ArrowUpRight, ArrowDownRight, Trash2, Edit2 } f
 import { format } from 'date-fns';
 import { cn } from '../lib/utils';
 import TransactionModal from '../components/TransactionModal';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export default function Financeiro() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -12,6 +14,7 @@ export default function Financeiro() {
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
   useEffect(() => {
     fetchTransactions();
@@ -69,7 +72,7 @@ export default function Financeiro() {
     return matchesSearch && matchesType;
   });
 
-  function handleExport() {
+  function handleExportCSV() {
     if (filteredTransactions.length === 0) {
       alert('Não há transações para exportar.');
       return;
@@ -79,7 +82,7 @@ export default function Financeiro() {
     const csvRows = [
       headers.join(';'),
       ...filteredTransactions.map(t => [
-        t.description.replace(/;/g, ','), // Evitar quebra de colunas
+        t.description.replace(/;/g, ','),
         t.category,
         format(new Date(t.date), 'dd/MM/yyyy'),
         t.type === 'income' ? 'Entrada' : 'Saída',
@@ -87,7 +90,7 @@ export default function Financeiro() {
       ].join(';'))
     ];
 
-    const csvContent = "\ufeff" + csvRows.join('\n'); // Add BOM for Excel UTF-8
+    const csvContent = "\ufeff" + csvRows.join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -97,6 +100,55 @@ export default function Financeiro() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    setIsExportMenuOpen(false);
+  }
+
+  function handleExportPDF() {
+    if (filteredTransactions.length === 0) {
+      alert('Não há transações para exportar.');
+      return;
+    }
+
+    const doc = new jsPDF();
+
+    // Título e Transações
+    doc.setFontSize(20);
+    doc.setTextColor(79, 70, 229); // Indigo 600
+    doc.text('Relatório Financeiro', 14, 22);
+
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139); // Slate 500
+    doc.text(`Gerado em: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 30);
+
+    const tableData = filteredTransactions.map(t => [
+      t.description,
+      t.category,
+      format(new Date(t.date), 'dd/MM/yyyy'),
+      t.type === 'income' ? 'Entrada' : 'Saída',
+      new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(t.amount)
+    ]);
+
+    autoTable(doc, {
+      startY: 38,
+      head: [['Descrição', 'Categoria', 'Data', 'Tipo', 'Valor']],
+      body: tableData,
+      headStyles: { fillColor: [79, 70, 229], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { top: 38 },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 3) {
+          const type = data.cell.raw;
+          if (type === 'Entrada') {
+            data.cell.styles.textColor = [5, 150, 105]; // Emerald 600
+          } else {
+            data.cell.styles.textColor = [225, 29, 72]; // Rose 600
+          }
+        }
+      }
+    });
+
+    doc.save(`financeiro_${format(new Date(), 'yyyyMMdd_HHmm')}.pdf`);
+    setIsExportMenuOpen(false);
   }
 
   return (
@@ -146,13 +198,45 @@ export default function Financeiro() {
             color="rose"
           />
         </div>
-        <button
-          onClick={handleExport}
-          className="px-4 py-3 rounded-2xl bg-slate-100 text-slate-600 font-semibold flex items-center justify-center gap-2 hover:bg-slate-200 transition-all"
-        >
-          <Download className="w-5 h-5" />
-          Exportar
-        </button>
+
+        <div className="relative">
+          <button
+            onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+            className="px-4 py-3 rounded-2xl bg-slate-100 text-slate-600 font-semibold flex items-center justify-center gap-2 hover:bg-slate-200 transition-all w-full"
+          >
+            <Download className="w-5 h-5" />
+            Exportar
+          </button>
+
+          {isExportMenuOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setIsExportMenuOpen(false)}
+              ></div>
+              <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 py-2 z-20">
+                <button
+                  onClick={handleExportPDF}
+                  className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <span>Relatório (PDF)</span>
+                </button>
+                <button
+                  onClick={handleExportCSV}
+                  className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <span>Dados (Excel)</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Transactions List */}
