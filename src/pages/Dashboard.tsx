@@ -7,6 +7,7 @@ import { ptBR } from 'date-fns/locale';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import CategoryDetailsModal from '../components/CategoryDetailsModal';
 
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -16,6 +17,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [isEditingIncome, setIsEditingIncome] = useState(false);
   const [newIncome, setNewIncome] = useState('');
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -210,7 +212,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-bold text-lg text-slate-800">Gastos por Categoria</h3>
             <button
-              onClick={() => navigate('/financeiro')}
+              onClick={() => setIsCategoryModalOpen(true)}
               className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
             >
               Ver Detalhes
@@ -330,6 +332,12 @@ export default function Dashboard() {
           </table>
         </div>
       </div>
+      <CategoryDetailsModal
+        isOpen={isCategoryModalOpen}
+        onClose={() => setIsCategoryModalOpen(false)}
+        data={categoryData}
+        colors={COLORS}
+      />
     </div>
   );
 }
