@@ -39,7 +39,7 @@ export default function Dashboard() {
         .eq('user_id', session.user.id)
         .gte('start_time', now.toISOString())
         .order('start_time', { ascending: true })
-        .limit(5),
+        .limit(10),
       supabase.from('profiles').select('*').eq('id', session.user.id).single()
     ]);
 
@@ -134,11 +134,11 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 px-1 sm:px-0">
         {/* Renda Mensal Card */}
         <motion.div
           whileHover={{ y: -4 }}
-          className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden"
+          className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden h-full"
         >
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 rounded-2xl bg-blue-50 text-blue-600">
@@ -166,10 +166,10 @@ export default function Dashboard() {
                   className="w-full bg-slate-50 border border-indigo-100 rounded-lg px-2 py-1 text-lg font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   autoFocus
                 />
-                <button onClick={handleUpdateIncome} className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600">
+                <button onClick={handleUpdateIncome} className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 shrink-0">
                   <Check className="w-4 h-4" />
                 </button>
-                <button onClick={() => setIsEditingIncome(false)} className="p-1.5 bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300">
+                <button onClick={() => setIsEditingIncome(false)} className="p-1.5 bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300 shrink-0">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -242,17 +242,21 @@ export default function Dashboard() {
             <h3 className="font-bold text-lg text-slate-800">Próximos Compromissos</h3>
             <Calendar className="w-5 h-5 text-slate-400" />
           </div>
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
             {upcomingEvents.length > 0 ? (
               upcomingEvents.map((event) => (
-                <div key={event.id} className="flex items-start gap-4 p-3 rounded-2xl hover:bg-slate-50 transition-colors">
+                <div key={event.id} className="flex items-start gap-4 p-3 rounded-2xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
                   <div className="w-12 h-12 rounded-xl bg-indigo-50 flex flex-col items-center justify-center shrink-0">
-                    <span className="text-[10px] font-bold text-indigo-400 uppercase">{format(new Date(event.start_time), 'MMM')}</span>
+                    <span className="text-[10px] font-bold text-indigo-400 uppercase">{format(new Date(event.start_time), 'MMM', { locale: ptBR })}</span>
                     <span className="text-lg font-bold text-indigo-600 leading-none">{format(new Date(event.start_time), 'dd')}</span>
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="font-semibold text-slate-800 truncate">{event.title}</p>
-                    <p className="text-xs text-slate-500">{format(new Date(event.start_time), 'HH:mm')} - {event.description || 'Sem descrição'}</p>
+                    <p className="text-xs text-slate-500 flex items-center gap-1">
+                      <span className="font-medium text-indigo-600">{format(new Date(event.start_time), 'HH:mm')}</span>
+                      <span>•</span>
+                      <span className="truncate">{event.description || 'Sem descrição'}</span>
+                    </p>
                   </div>
                 </div>
               ))
