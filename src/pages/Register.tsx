@@ -18,10 +18,16 @@ const Register: React.FC = () => {
         setLoading(true);
         setError(null);
 
-        // 1. Sign up user
+        // 1. Sign up user (incluindo metadados para o trigger do banco)
         const { data: authData, error: authError } = await supabase.auth.signUp({
             email,
             password,
+            options: {
+                data: {
+                    full_name: fullName,
+                    whatsapp_number: whatsapp.replace(/\D/g, ''),
+                }
+            }
         });
 
         if (authError) {
@@ -31,22 +37,8 @@ const Register: React.FC = () => {
         }
 
         if (authData.user) {
-            // 2. Create Profile
-            const { error: profileError } = await supabase.from('profiles').insert([
-                {
-                    id: authData.user.id,
-                    full_name: fullName,
-                    whatsapp_number: whatsapp.replace(/\D/g, ''), // Clean non-digits
-                },
-            ]);
-
-            if (profileError) {
-                setError("Erro ao criar perfil: " + profileError.message);
-                setLoading(false);
-            } else {
-                // Success
-                navigate('/');
-            }
+            // Sucesso: O perfil é criado automaticamente via TRIGGER no banco de dados
+            navigate('/');
         }
     };
 
