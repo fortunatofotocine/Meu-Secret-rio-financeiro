@@ -29,7 +29,8 @@ export default function Financeiro() {
       .from('transactions')
       .select('*')
       .eq('user_id', session.user.id)
-      .order('date', { ascending: false });
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false });
 
     const { data, error } = await query;
     if (data) setTransactions(data);

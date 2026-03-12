@@ -33,7 +33,8 @@ export default function DespesasFixas() {
             supabase.from('fixed_expenses')
                 .select('*')
                 .eq('user_id', session.user.id)
-                .order('due_day', { ascending: true }),
+                .order('due_day', { ascending: true })
+                .order('created_at', { ascending: true }),
             supabase.from('transactions')
                 .select('fixed_expense_id')
                 .eq('user_id', session.user.id)

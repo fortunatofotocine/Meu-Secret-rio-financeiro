@@ -34,7 +34,8 @@ export default function Dashboard() {
       supabase.from('transactions')
         .select('*')
         .eq('user_id', session.user.id)
-        .order('date', { ascending: false }),
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false }),
       supabase.from('events')
         .select('*')
         .eq('user_id', session.user.id)
