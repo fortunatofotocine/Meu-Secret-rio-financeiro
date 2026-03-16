@@ -51,11 +51,19 @@ app.get("/api/whatsapp/webhook", (req, res) => {
   }
 });
 
-// WhatsApp Webhook Receiver (POST) - New Route
-app.post("/api/whatsapp/webhook", (req, res) => {
-  console.log("--- New WhatsApp Webhook Received (POST) ---");
-  console.log("Full Body:", JSON.stringify(req.body, null, 2));
-  res.status(200).send("OK");
+// Catch-all specific to webhook for debugging
+app.all(/.*webhook.*/, (req, res, next) => {
+  console.log(`[Webhook Catch-all] ${req.method} ${req.url}`);
+  if (req.url.includes("whatsapp/webhook")) {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+    if (mode === "subscribe" && token === "zlai_webhook_token") {
+      res.setHeader('Content-Type', 'text/plain');
+      return res.status(200).send(challenge);
+    }
+  }
+  next();
 });
 
 // Fallback routes without /api prefix (for Vercel rewrite compatibility)
@@ -712,7 +720,12 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
   }
 }
 
-// Export app for Vercel
+// Diagnostic 404 Handler
+app.use((req, res) => {
+  console.error(`[404] ${req.method} ${req.url}`);
+  res.status(404).send(`404: Route ${req.url} not found. Express thinks the path is ${req.path}. BaseURL: ${req.baseUrl}`);
+});
+
 export default app;
 
 // Only run standalone server if not on Vercel
