@@ -1,10 +1,5 @@
 {
     "version": 2,
-    "functions": {
-        "api/*.ts": {
-            "runtime": "@vercel/node"
-        }
-    },
     "rewrites": [
         {
             "source": "/api/whatsapp/webhook",
@@ -15,7 +10,7 @@
             "destination": "/api/index"
         },
         {
-            "source": "/((?!api/|assets/|favicon|logo|manifest|.*\\..*).*)",
+            "source": "/((?!api/|.*\\.(?:js|css|png|jpg|jpeg|gif|ico|webmanifest|svg|woff|woff2|ttf|otf|mp4)).*)",
             "destination": "/index.html"
         }
     ]
