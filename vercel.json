@@ -19,10 +19,6 @@
     ],
     "rewrites": [
         {
-            "source": "/api/whatsapp/webhook",
-            "destination": "/api/whatsapp/webhook"
-        },
-        {
             "source": "/api/(.*)",
             "destination": "server.ts"
         },
