@@ -9,6 +9,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
 
     if (mode === 'subscribe' && token === 'zlai_webhook_token') {
       // Return challenge as plain text only
+      res.setHeader('Content-Type', 'text/plain');
       return res.status(200).send(challenge);
     } else {
       return res.status(403).end();
