@@ -23,6 +23,12 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 // Gemini AI Setup
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
+// --- Diagnostic Middleware ---
+app.use((req, res, next) => {
+  console.log(`[Request] ${req.method} ${req.url} | Path: ${req.path}`);
+  next();
+});
+
 // --- API Routes ---
 
 app.get("/api/health", (req, res) => {
@@ -49,6 +55,24 @@ app.get("/api/whatsapp/webhook", (req, res) => {
 app.post("/api/whatsapp/webhook", (req, res) => {
   console.log("--- New WhatsApp Webhook Received (POST) ---");
   console.log("Full Body:", JSON.stringify(req.body, null, 2));
+  res.status(200).send("OK");
+});
+
+// Fallback routes without /api prefix (for Vercel rewrite compatibility)
+app.get("/whatsapp/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  if (mode === "subscribe" && token === "zlai_webhook_token") {
+    res.setHeader('Content-Type', 'text/plain');
+    return res.status(200).send(challenge);
+  } else {
+    return res.sendStatus(403);
+  }
+});
+
+app.post("/whatsapp/webhook", (req, res) => {
+  console.log("--- WhatsApp Webhook Received (POST - Fallback) ---");
   res.status(200).send("OK");
 });
 
@@ -107,95 +131,7 @@ app.get("/api/test-parser", async (req, res) => {
   res.json({ currentDateTime, results });
 });
 
-// WhatsApp Webhook Verification (GET)
-app.get("/api/webhook/whatsapp", (req, res) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-
-  const verifyToken = (process.env.WHATSAPP_VERIFY_TOKEN || "meu_whatsapp_secretario_token").trim();
-
-  console.log("--- WhatsApp Webhook Verification (GET) ---");
-  console.log("Mode:", mode);
-  console.log("Received Token:", token);
-  console.log("Expected Token:", verifyToken);
-  console.log("Challenge:", challenge);
-
-  if (mode === "subscribe" && token && token.toString().trim() === verifyToken) {
-    console.log("WEBHOOK_VERIFIED_SUCCESSFULLY");
-    res.set("Content-Type", "text/plain");
-    return res.status(200).send(challenge);
-  } else {
-    console.error("VERIFICATION_FAILED: Token mismatch or missing parameters.");
-    return res.status(403).send("Verification failed: Token mismatch");
-  }
-});
-
-// WhatsApp Webhook Receiver (POST)
-app.post("/api/webhook/whatsapp", async (req, res) => {
-  console.log("--- WhatsApp Webhook Received (POST) ---");
-  const body = req.body;
-
-  // Log raw payload to system_logs for debugging
-  try {
-    await supabase.from("system_logs").insert([
-      {
-        event_type: "whatsapp_webhook_received",
-        payload: body
-      }
-    ]);
-  } catch (logErr) {
-    console.error("Error logging to system_logs:", logErr);
-  }
-
-  if (body.object === "whatsapp_business_account") {
-    try {
-      const entry = body.entry?.[0];
-      const changes = entry?.changes?.[0];
-      const value = changes?.value;
-      const message = value?.messages?.[0];
-
-      if (message) {
-        const from = message.from;
-        let msgBody = message.text?.body || "";
-        const msgId = message.id;
-
-        // --- NEW: Audio/Voice Support ---
-        if (message.type === 'audio' || message.type === 'voice') {
-          console.log(`[Audio] Recebido de ${from}. Processando transcodificação...`);
-          // We indicate to the user we are "listening"
-          await sendWhatsAppMessage(from, "🎧 *Ouvindo seu áudio...*", value?.metadata?.phone_number_id);
-
-          const audioData = message.audio || message.voice;
-          if (audioData?.id) {
-            // We'll try to get the transcription via AI fallback later by passing a flag
-            msgBody = `[AUDIO_MESSAGE_ID:${audioData.id}]`;
-          }
-        }
-
-        console.log(`Processing message from ${from}: ${msgBody}`);
-
-        // Await processing to ensure Vercel doesn't terminate the function early
-        const phone_number_id = value?.metadata?.phone_number_id;
-        await processWhatsAppMessage(from, msgBody, msgId, body, phone_number_id);
-      }
-
-      return res.status(200).json({ status: "success" });
-    } catch (err: any) {
-      console.error("Error parsing webhook body:", err);
-      await supabase.from("system_logs").insert([
-        {
-          event_type: "whatsapp_parse_error",
-          payload: body,
-          error_message: err.message
-        }
-      ]);
-      return res.status(200).json({ status: "success" }); // Still return 200 to WhatsApp
-    }
-  }
-
-  res.status(200).json({ status: "success" });
-});
+// Old routes removed to avoid confusion. Logic moved to the top.
 
 async function processWhatsAppMessage(from: string, msgBody: string, msgId: string, rawPayload: any, phone_number_id?: string) {
   try {
