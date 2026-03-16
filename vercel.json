@@ -10,7 +10,10 @@
             "destination": "/api/index"
         },
         {
-            "source": "/((?!api|assets|favicon|logo|manifest|apple-touch-icon|zlai-icon|icon-).*)",
+            "handle": "filesystem"
+        },
+        {
+            "source": "/(.*)",
             "destination": "/index.html"
         }
     ]
