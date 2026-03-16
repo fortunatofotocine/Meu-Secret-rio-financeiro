@@ -1,54 +1,22 @@
 {
     "version": 2,
-    "builds": [
-        {
-            "src": "server.ts",
-            "use": "@vercel/node"
-        },
-        {
-            "src": "api/webhook.ts",
-            "use": "@vercel/node"
-        },
-        {
-            "src": "package.json",
-            "use": "@vercel/static-build",
-            "config": {
-                "distDir": "dist"
-            }
+    "functions": {
+        "api/*.ts": {
+            "runtime": "@vercel/node"
         }
-    ],
-    "routes": [
+    },
+    "rewrites": [
         {
-            "src": "/api/whatsapp/webhook",
-            "dest": "api/webhook.ts"
+            "source": "/api/whatsapp/webhook",
+            "destination": "/api/webhook"
         },
         {
-            "src": "/api/(.*)",
-            "dest": "server.ts"
+            "source": "/api/(.*)",
+            "destination": "/api/index"
         },
         {
-            "src": "/assets/(.*)",
-            "dest": "/assets/$1"
-        },
-        {
-            "src": "/favicon.ico",
-            "dest": "/favicon.ico"
-        },
-        {
-            "src": "/zlai-logo.png",
-            "dest": "/zlai-logo.png"
-        },
-        {
-            "src": "/manifest.webmanifest",
-            "dest": "/manifest.webmanifest"
-        },
-        {
-            "src": "/(.*\\..*)",
-            "dest": "/$1"
-        },
-        {
-            "src": "/(.*)",
-            "dest": "/index.html"
+            "source": "/((?!api/|assets/|favicon|logo|manifest|.*\\..*).*)",
+            "destination": "/index.html"
         }
     ]
 }
