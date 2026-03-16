@@ -6,15 +6,11 @@
             "destination": "/api/webhook"
         },
         {
-            "source": "/api/:path*",
-            "destination": "/api/:path*"
+            "source": "/api/(.*)",
+            "destination": "/api/index"
         },
         {
-            "source": "/assets/:path*",
-            "destination": "/assets/:path*"
-        },
-        {
-            "source": "/(.*)",
+            "source": "/((?!api/|assets/|.*\\.).*)",
             "destination": "/index.html"
         }
     ]
