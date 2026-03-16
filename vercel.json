@@ -1,19 +1,33 @@
 {
     "version": 2,
+    "builds": [
+        {
+            "src": "api/index.ts",
+            "use": "@vercel/node"
+        },
+        {
+            "src": "api/webhook.ts",
+            "use": "@vercel/node"
+        },
+        {
+            "src": "package.json",
+            "use": "@vercel/static-build",
+            "config": {
+                "distDir": "dist"
+            }
+        }
+    ],
     "rewrites": [
         {
             "source": "/api/whatsapp/webhook",
-            "destination": "/api/webhook"
+            "destination": "api/webhook.ts"
         },
         {
             "source": "/api/(.*)",
-            "destination": "/api/index"
+            "destination": "api/index.ts"
         },
         {
-            "handle": "filesystem"
-        },
-        {
-            "source": "/(.*)",
+            "source": "/((?!api|assets|favicon|logo|manifest|apple-touch-icon|icon-|zlai-|.*\\.).*)",
             "destination": "/index.html"
         }
     ]
