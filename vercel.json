@@ -17,18 +17,38 @@
             }
         }
     ],
-    "rewrites": [
+    "routes": [
         {
-            "source": "/api/whatsapp/webhook",
-            "destination": "api/webhook.ts"
+            "src": "/api/whatsapp/webhook",
+            "dest": "api/webhook.ts"
         },
         {
-            "source": "/api/(.*)",
-            "destination": "server.ts"
+            "src": "/api/(.*)",
+            "dest": "server.ts"
         },
         {
-            "source": "/((?!api/|assets/|.*\\.).*)",
-            "destination": "/index.html"
+            "src": "/assets/(.*)",
+            "dest": "/assets/$1"
+        },
+        {
+            "src": "/favicon.ico",
+            "dest": "/favicon.ico"
+        },
+        {
+            "src": "/zlai-logo.png",
+            "dest": "/zlai-logo.png"
+        },
+        {
+            "src": "/manifest.webmanifest",
+            "dest": "/manifest.webmanifest"
+        },
+        {
+            "src": "/(.*\\..*)",
+            "dest": "/$1"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/index.html"
         }
     ]
 }
