@@ -6,11 +6,15 @@
             "destination": "/api/webhook"
         },
         {
+            "source": "/api/health",
+            "destination": "/api/health"
+        },
+        {
             "source": "/api/(.*)",
             "destination": "/api/index"
         },
         {
-            "source": "/((?!api/|.*\\.(?:js|css|png|jpg|jpeg|gif|ico|webmanifest|svg|woff|woff2|ttf|otf|mp4)).*)",
+            "source": "/((?!api/|assets/|favicon|logo|manifest|.*\\.).*)",
             "destination": "/index.html"
         }
     ]
