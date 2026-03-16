@@ -10,7 +10,7 @@
             "destination": "/api/index"
         },
         {
-            "source": "/((?!api|assets|.*\\..*).*)",
+            "source": "/((?!api|assets|favicon|logo|manifest|apple-touch-icon|zlai-icon|icon-).*)",
             "destination": "/index.html"
         }
     ]
