@@ -29,6 +29,29 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Secretário Financeiro API is running" });
 });
 
+// --- NEW SPECIFIC WHATSAPP WEBHOOK ROUTES ---
+
+// WhatsApp Webhook Verification (GET) - New Route
+app.get("/api/whatsapp/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === "zlai_webhook_token") {
+    res.setHeader('Content-Type', 'text/plain');
+    return res.status(200).send(challenge);
+  } else {
+    return res.sendStatus(403);
+  }
+});
+
+// WhatsApp Webhook Receiver (POST) - New Route
+app.post("/api/whatsapp/webhook", (req, res) => {
+  console.log("--- New WhatsApp Webhook Received (POST) ---");
+  console.log("Full Body:", JSON.stringify(req.body, null, 2));
+  res.status(200).send("OK");
+});
+
 app.get("/api/debug-env", async (req, res) => {
   let dbTest = "not tested";
   try {
