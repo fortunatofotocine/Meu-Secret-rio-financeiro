@@ -6,15 +6,15 @@
             "destination": "/api/webhook"
         },
         {
-            "source": "/api/health",
-            "destination": "/api/health"
+            "source": "/api/:path*",
+            "destination": "/api/:path*"
         },
         {
-            "source": "/api/(.*)",
-            "destination": "/api/index"
+            "source": "/assets/:path*",
+            "destination": "/assets/:path*"
         },
         {
-            "source": "/((?!api/|assets/|favicon|logo|manifest|.*\\.).*)",
+            "source": "/(.*)",
             "destination": "/index.html"
         }
     ]
