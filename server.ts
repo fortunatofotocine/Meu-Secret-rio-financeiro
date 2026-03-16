@@ -32,7 +32,7 @@ app.use((req, res, next) => {
 // --- API Routes ---
 
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", message: "Secretário Financeiro API is running" });
+  res.json({ status: "ok", message: "Secretário Financeiro API v1.0.4 is running", deploy_id: "verify_deploy_1" });
 });
 
 // --- NEW SPECIFIC WHATSAPP WEBHOOK ROUTES ---
