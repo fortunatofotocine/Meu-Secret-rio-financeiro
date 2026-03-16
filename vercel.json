@@ -27,7 +27,7 @@
             "destination": "api/index.ts"
         },
         {
-            "source": "/((?!api|assets|favicon|logo|manifest|apple-touch-icon|icon-|zlai-|.*\\.).*)",
+            "source": "/((?!api/).*)",
             "destination": "/index.html"
         }
     ]
