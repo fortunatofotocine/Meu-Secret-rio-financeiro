@@ -2,11 +2,18 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  /* ZLAI Brand Colors */
+  --color-zlai-primary: #FF6A00;
+  --color-zlai-dark: #1C1C1C;
+  --color-zlai-bg: #FFF7F2;
+  --color-zlai-card: #FFFFFF;
+  --color-zlai-gray: #6B7280;
 }
 
 @layer base {
   body {
-    @apply bg-[#F8FAFC] text-slate-900 antialiased;
+    @apply bg-zlai-bg text-zlai-dark antialiased;
   }
 }
 

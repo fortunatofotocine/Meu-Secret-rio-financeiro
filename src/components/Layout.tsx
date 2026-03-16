@@ -1,14 +1,24 @@
-import React, { useEffect, useState } from 'react';
-import { LayoutDashboard, ReceiptText, CalendarDays, MessageSquare, Menu, Wallet, Repeat, LogOut } from 'lucide-react';
+import React, { useEffect, useState, useContext } from 'react';
+import { LayoutDashboard, ReceiptText, CalendarDays, MessageSquare, Menu, Wallet, Repeat, LogOut, Target, Download } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { InstallContext } from '../App';
 
 export default function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [userName, setUserName] = useState('Usuário');
   const navigate = useNavigate();
+  const { deferredPrompt, setDeferredPrompt } = useContext(InstallContext);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`User response to the install prompt: ${outcome}`);
+    setDeferredPrompt(null);
+  };
 
   useEffect(() => {
     async function getProfile() {
@@ -38,11 +48,12 @@ export default function Layout() {
     { to: '/financeiro', icon: ReceiptText, label: 'Financeiro' },
     { to: '/despesas-fixas', icon: Repeat, label: 'Despesas Fixas' },
     { to: '/agenda', icon: CalendarDays, label: 'Agenda' },
+    { to: '/metas', icon: Target, label: 'Metas' },
     { to: '/mensagens', icon: MessageSquare, label: 'WhatsApp' },
   ];
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex text-slate-900 font-sans">
+    <div className="min-h-screen bg-zlai-bg flex text-zlai-dark font-sans">
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -66,10 +77,7 @@ export default function Layout() {
         <div className="h-full flex flex-col">
           <div className="p-6 border-bottom border-slate-100">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
-                <Wallet className="text-white w-6 h-6" />
-              </div>
-              <h1 className="font-bold text-xl tracking-tight text-slate-800">Secretário</h1>
+              <img src="/zlai-logo.png" alt="ZLAI Logo" className="h-[30px] object-contain" />
             </div>
           </div>
 
@@ -83,8 +91,8 @@ export default function Layout() {
                   cn(
                     "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
                     isActive
-                      ? "bg-indigo-50 text-indigo-600 font-medium"
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                      ? "bg-zlai-primary/10 text-zlai-primary font-semibold shadow-sm"
+                      : "text-zlai-gray hover:bg-slate-50 hover:text-zlai-dark"
                   )
                 }
               >
@@ -92,6 +100,16 @@ export default function Layout() {
                 <span>{item.label}</span>
               </NavLink>
             ))}
+
+            {deferredPrompt && (
+              <button
+                onClick={handleInstallClick}
+                className="w-full mt-2 flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all duration-300 text-white bg-gradient-to-r from-[#FF6A00] to-[#FF8C00] shadow-md shadow-orange-500/30 hover:shadow-orange-500/50 hover:-translate-y-0.5"
+              >
+                <Download className="w-5 h-5" />
+                <span>Baixar App</span>
+              </button>
+            )}
           </nav>
 
           <div className="p-4 border-t border-slate-100 space-y-2">
@@ -127,11 +145,11 @@ export default function Layout() {
 
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-slate-800">Olá, {userName.split(' ')[0]}</p>
-              <p className="text-xs text-slate-500">Premium Plan</p>
+              <p className="text-sm font-bold text-zlai-dark">Olá, {userName.split(' ')[0]}</p>
+              <p className="text-xs text-zlai-gray font-medium">ZLAI Premium</p>
             </div>
-            <div className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-sm overflow-hidden">
-              <img src={`https://ui-avatars.com/api/?name=${userName}&background=6366f1&color=fff`} alt="Avatar" referrerPolicy="no-referrer" />
+            <div className="w-10 h-10 rounded-full border-2 border-white shadow-sm overflow-hidden">
+              <img src={`https://ui-avatars.com/api/?name=${userName}&background=FF6A00&color=fff`} alt="Avatar" referrerPolicy="no-referrer" />
             </div>
           </div>
         </header>

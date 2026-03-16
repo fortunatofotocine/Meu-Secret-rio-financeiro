@@ -77,10 +77,10 @@ export default function Agenda() {
         </div>
         <button
           onClick={handleAdd}
-          className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+          className="bg-zlai-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-orange-600 transition-all shadow-lg shadow-orange-100"
         >
           <Plus className="w-5 h-5" />
-          Novo Evento
+          Novo Evento ZLAI
         </button>
       </div>
 
@@ -132,13 +132,13 @@ export default function Agenda() {
                   onClick={() => setSelectedDate(day)}
                   className={cn(
                     "aspect-square rounded-2xl flex flex-col items-center justify-center relative transition-all group",
-                    isSelected ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "hover:bg-indigo-50 text-slate-700",
+                    isSelected ? "bg-zlai-primary text-white shadow-lg shadow-orange-100 scale-105" : "hover:bg-orange-50 text-slate-700",
                     !isSameMonth(day, currentMonth) && "opacity-20"
                   )}
                 >
                   <span className={cn(
                     "text-sm font-bold",
-                    isTodayDate && !isSelected && "text-indigo-600"
+                    isTodayDate && !isSelected && "text-zlai-primary"
                   )}>
                     {format(day, 'd')}
                   </span>
@@ -147,7 +147,7 @@ export default function Agenda() {
                       {dayEvents.slice(0, 3).map((_, i) => (
                         <div key={i} className={cn(
                           "w-1 h-1 rounded-full",
-                          isSelected ? "bg-white" : "bg-indigo-400"
+                          isSelected ? "bg-white" : "bg-orange-400"
                         )} />
                       ))}
                     </div>
@@ -167,7 +167,7 @@ export default function Agenda() {
               </h3>
               <p className="text-xs text-slate-500">{selectedDateEvents.length} compromissos</p>
             </div>
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+            <div className="p-2 bg-orange-50 text-zlai-primary rounded-xl">
               <Clock className="w-5 h-5" />
             </div>
           </div>
@@ -175,7 +175,7 @@ export default function Agenda() {
           <div className="flex-1 space-y-4 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar">
             {selectedDateEvents.length > 0 ? (
               selectedDateEvents.map((event) => (
-                <div key={event.id} className="group p-4 rounded-2xl border border-slate-100 hover:border-indigo-100 hover:bg-indigo-50/30 transition-all">
+                <div key={event.id} className="group p-4 rounded-2xl border border-slate-50 hover:border-orange-100 hover:bg-orange-50/30 transition-all">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <h4 className={cn(
@@ -192,7 +192,7 @@ export default function Agenda() {
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                       <button
                         onClick={() => handleEdit(event)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-white transition-all"
+                        className="p-1.5 text-slate-400 hover:text-zlai-primary rounded-lg hover:bg-white transition-all"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
@@ -206,7 +206,7 @@ export default function Agenda() {
                         onClick={() => handleToggleComplete(event)}
                         className={cn(
                           "p-1.5 rounded-lg transition-all",
-                          event.completed ? "text-emerald-500" : "text-slate-300 hover:text-indigo-600 hover:bg-white"
+                          event.completed ? "text-emerald-500" : "text-slate-300 hover:text-zlai-primary hover:bg-white"
                         )}
                       >
                         {event.completed ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}

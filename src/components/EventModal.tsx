@@ -74,8 +74,8 @@ export default function EventModal({ isOpen, onClose, onSave, event, initialDate
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
             <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white">
-                    <h3 className="text-xl font-bold text-slate-800">
-                        {event ? 'Editar Evento' : 'Novo Evento'}
+                    <h3 className="text-xl font-bold text-zlai-dark uppercase tracking-tighter">
+                        {event ? 'Editar Evento ZLAI' : 'Novo Evento ZLAI'}
                     </h3>
                     <button
                         onClick={onClose}
@@ -91,7 +91,7 @@ export default function EventModal({ isOpen, onClose, onSave, event, initialDate
                         <input
                             required
                             type="text"
-                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-zlai-primary transition-all font-medium text-zlai-dark outline-none"
                             placeholder="Ex: Reunião, Dentista..."
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}
@@ -101,7 +101,7 @@ export default function EventModal({ isOpen, onClose, onSave, event, initialDate
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-1">Descrição</label>
                         <textarea
-                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium resize-none h-24"
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-zlai-primary transition-all font-medium text-zlai-dark outline-none resize-none h-24"
                             placeholder="Notas adicionais..."
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
@@ -114,7 +114,7 @@ export default function EventModal({ isOpen, onClose, onSave, event, initialDate
                             <input
                                 required
                                 type="datetime-local"
-                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-zlai-primary transition-all font-medium text-zlai-dark outline-none"
                                 value={startTime}
                                 onChange={(e) => setStartTime(e.target.value)}
                             />
@@ -123,7 +123,7 @@ export default function EventModal({ isOpen, onClose, onSave, event, initialDate
                             <label className="block text-sm font-bold text-slate-700 mb-1">Fim (Opcional)</label>
                             <input
                                 type="datetime-local"
-                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-zlai-primary transition-all font-medium text-zlai-dark outline-none"
                                 value={endTime}
                                 onChange={(e) => setEndTime(e.target.value)}
                             />
@@ -134,7 +134,7 @@ export default function EventModal({ isOpen, onClose, onSave, event, initialDate
                         <button
                             disabled={loading}
                             type="submit"
-                            className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50"
+                            className="w-full bg-zlai-primary text-white py-4 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-orange-600 transition-all shadow-lg shadow-orange-100 disabled:opacity-50"
                         >
                             <Save className="w-5 h-5" />
                             {loading ? 'Salvando...' : 'Salvar Evento'}

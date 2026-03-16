@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp, TrendingDown, Wallet, Calendar, ArrowUpRight, ArrowDownRight, Edit3, Check, X, AlertCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Calendar, ArrowUpRight, ArrowDownRight, Edit3, Check, X, AlertCircle, Target } from 'lucide-react';
 import { supabase, type Transaction, type Event, type Profile } from '../lib/supabase';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<Event[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [goals, setGoals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const [isEditingIncome, setIsEditingIncome] = useState(false);
@@ -30,7 +31,7 @@ export default function Dashboard() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
-    const [transRes, eventsRes, profileRes] = await Promise.all([
+    const [transRes, eventsRes, profileRes, goalsRes] = await Promise.all([
       supabase.from('transactions')
         .select('*')
         .eq('user_id', session.user.id)
@@ -42,7 +43,8 @@ export default function Dashboard() {
         .gte('start_time', new Date().toISOString())
         .order('start_time', { ascending: true })
         .limit(10),
-      supabase.from('profiles').select('*').eq('id', session.user.id).single()
+      supabase.from('profiles').select('*').eq('id', session.user.id).single(),
+      supabase.from('financial_goals').select('*').eq('user_id', session.user.id).eq('status', 'in_progress').limit(3)
     ]);
 
     if (transRes.data) setTransactions(transRes.data);
@@ -51,6 +53,8 @@ export default function Dashboard() {
       setProfile(profileRes.data);
       setNewIncome(profileRes.data.monthly_income.toString());
     }
+    if (goalsRes.data) setGoals(goalsRes.data);
+    
     setLoading(false);
   }
 
@@ -111,7 +115,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-zlai-primary"></div>
       </div>
     );
   }
@@ -120,27 +124,29 @@ export default function Dashboard() {
     <div className="space-y-8 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Visão Geral</h2>
+          <h1 className="text-2xl font-bold text-zlai-dark tracking-tighter">ZLAI Intelligence</h1>
           <p className="text-slate-500">Bem-vindo ao seu secretário financeiro pessoal.</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="bg-white p-1 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-1">
             <button
               onClick={handlePrevMonth}
-              className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-indigo-600 transition-all"
+              className="p-2 hover:bg-orange-50 rounded-xl text-slate-400 hover:text-zlai-primary transition-all"
               title="Mês Anterior"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
             <div className="px-4 py-2 flex items-center gap-2 min-w-[140px] justify-center">
-              <Calendar className="w-4 h-4 text-indigo-500" />
+              <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center">
+                <Target className="w-6 h-6 text-zlai-primary" />
+              </div>
               <span className="text-sm font-bold text-slate-700 capitalize">
                 {format(selectedDate, "MMMM yyyy", { locale: ptBR })}
               </span>
             </div>
             <button
               onClick={handleNextMonth}
-              className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-indigo-600 transition-all"
+              className="p-2 hover:bg-orange-50 rounded-xl text-slate-400 hover:text-zlai-primary transition-all"
               title="Próximo Mês"
             >
               <ChevronRight className="w-5 h-5" />
@@ -157,13 +163,13 @@ export default function Dashboard() {
           className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden h-full"
         >
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 rounded-2xl bg-blue-50 text-blue-600">
+            <div className="p-3 rounded-2xl bg-orange-50 text-zlai-primary">
               <TrendingUp className="w-6 h-6" />
             </div>
             {!isEditingIncome ? (
               <button
                 onClick={() => setIsEditingIncome(true)}
-                className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
+                className="p-2 text-slate-400 hover:text-zlai-primary transition-colors"
                 title="Editar Salário Base"
               >
                 <Edit3 className="w-4 h-4" />
@@ -179,7 +185,7 @@ export default function Dashboard() {
                   type="number"
                   value={newIncome}
                   onChange={(e) => setNewIncome(e.target.value)}
-                  className="w-full bg-slate-50 border border-indigo-100 rounded-lg px-2 py-1 text-lg font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full bg-slate-50 border border-orange-100 rounded-lg px-2 py-1 text-lg font-black text-zlai-dark focus:outline-none focus:ring-2 focus:ring-zlai-primary"
                   autoFocus
                 />
                 <button onClick={handleUpdateIncome} className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 shrink-0">
@@ -227,7 +233,7 @@ export default function Dashboard() {
             <h3 className="font-bold text-lg text-slate-800">Gastos por Categoria</h3>
             <button
               onClick={() => setIsCategoryModalOpen(true)}
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+              className="text-sm font-bold text-zlai-primary hover:text-orange-600 uppercase tracking-wider"
             >
               Ver Detalhes
             </button>
@@ -262,14 +268,14 @@ export default function Dashboard() {
             {upcomingEvents.length > 0 ? (
               upcomingEvents.map((event) => (
                 <div key={event.id} className="flex items-start gap-4 p-3 rounded-2xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
-                  <div className="w-12 h-12 rounded-xl bg-indigo-50 flex flex-col items-center justify-center shrink-0">
-                    <span className="text-[10px] font-bold text-indigo-400 uppercase">{format(new Date(event.start_time), 'MMM', { locale: ptBR })}</span>
-                    <span className="text-lg font-bold text-indigo-600 leading-none">{format(new Date(event.start_time), 'dd')}</span>
+                  <div className="w-12 h-12 rounded-xl bg-orange-50 flex flex-col items-center justify-center shrink-0">
+                    <span className="text-[10px] font-bold text-orange-400 uppercase">{format(new Date(event.start_time), 'MMM', { locale: ptBR })}</span>
+                    <span className="text-lg font-black text-zlai-primary leading-none">{format(new Date(event.start_time), 'dd')}</span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-slate-800 truncate">{event.title}</p>
                     <p className="text-xs text-slate-500 flex items-center gap-1">
-                      <span className="font-medium text-indigo-600">{format(new Date(event.start_time), 'HH:mm')}</span>
+                      <span className="font-bold text-zlai-primary">{format(new Date(event.start_time), 'HH:mm')}</span>
                       <span>•</span>
                       <span className="truncate">{event.description || 'Sem descrição'}</span>
                     </p>
@@ -291,13 +297,53 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Financial Goals Summary */}
+      {goals.length > 0 && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="font-bold text-lg text-slate-800">Minhas Metas</h3>
+            <button
+              onClick={() => navigate('/metas')}
+              className="text-sm font-bold text-zlai-primary hover:text-orange-600 uppercase tracking-wider"
+            >
+              Ver Todas
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {goals.map((goal) => {
+              const progress = Math.min((goal.current_amount / goal.target_amount) * 100, 100);
+              return (
+                <div key={goal.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col gap-3">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl">{goal.icon || '🎯'}</span>
+                      <span className="font-bold text-slate-700 text-sm truncate max-w-[120px]">{goal.name}</span>
+                    </div>
+                    <span className="text-[10px] font-black text-zlai-primary bg-white px-2 py-0.5 rounded-lg border border-orange-100 uppercase tracking-tighter">
+                      {progress.toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progress}%` }}
+                      className="h-full bg-zlai-primary rounded-full shadow-[0_0_8px_rgba(255,106,0,0.3)]"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Recent Transactions */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between">
           <h3 className="font-bold text-lg text-slate-800">Últimos Lançamentos do Período</h3>
           <button
             onClick={() => navigate('/financeiro')}
-            className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+            className="text-sm font-bold text-zlai-primary hover:text-orange-600 uppercase tracking-wider"
           >
             Ver Todos no Financeiro
           </button>
@@ -358,7 +404,7 @@ export default function Dashboard() {
 
 function StatCard({ title, value, icon: Icon, color, trend, isProfit, isStatus, statusText }: any) {
   const colors: any = {
-    indigo: "bg-indigo-50 text-indigo-600",
+    zlai: "bg-orange-50 text-zlai-primary",
     emerald: "bg-emerald-50 text-emerald-600",
     rose: "bg-rose-50 text-rose-600",
     amber: "bg-amber-50 text-amber-600",

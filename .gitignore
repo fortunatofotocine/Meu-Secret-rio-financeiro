@@ -10,3 +10,5 @@ webhook_verification_log.json
 _agents
 _agent
 .gemini
+
+.vercel

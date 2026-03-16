@@ -78,8 +78,8 @@ export default function FixedExpenseModal({ isOpen, onClose, onSave, expense }: 
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
             <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white">
-                    <h3 className="text-xl font-bold text-slate-800">
-                        {expense ? 'Editar Despesa Fixa' : 'Nova Despesa Fixa'}
+                    <h3 className="text-xl font-bold text-zlai-dark uppercase tracking-tighter">
+                        {expense ? 'Editar Despesa ZLAI' : 'Nova Despesa ZLAI'}
                     </h3>
                     <button
                         onClick={onClose}
@@ -95,7 +95,7 @@ export default function FixedExpenseModal({ isOpen, onClose, onSave, expense }: 
                         <input
                             required
                             type="text"
-                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-zlai-primary transition-all font-medium text-zlai-dark outline-none"
                             placeholder="Ex: Aluguel, Internet, Netflix..."
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
@@ -109,7 +109,7 @@ export default function FixedExpenseModal({ isOpen, onClose, onSave, expense }: 
                                 required
                                 type="number"
                                 step="0.01"
-                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-zlai-primary transition-all font-medium text-zlai-dark outline-none"
                                 placeholder="0,00"
                                 value={amount}
                                 onChange={(e) => setAmount(e.target.value)}
@@ -122,7 +122,7 @@ export default function FixedExpenseModal({ isOpen, onClose, onSave, expense }: 
                                 type="number"
                                 min="1"
                                 max="31"
-                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-zlai-primary transition-all font-medium text-zlai-dark outline-none"
                                 placeholder="1-31"
                                 value={dueDay}
                                 onChange={(e) => setDueDay(e.target.value)}
@@ -135,7 +135,7 @@ export default function FixedExpenseModal({ isOpen, onClose, onSave, expense }: 
                         <input
                             required
                             type="text"
-                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-2 focus:ring-zlai-primary transition-all font-medium text-zlai-dark outline-none"
                             placeholder="Ex: Moradia, Assinaturas..."
                             value={category}
                             onChange={(e) => setCategory(e.target.value)}
@@ -146,7 +146,7 @@ export default function FixedExpenseModal({ isOpen, onClose, onSave, expense }: 
                         <button
                             disabled={loading}
                             type="submit"
-                            className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50"
+                            className="w-full bg-zlai-primary text-white py-4 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-orange-600 transition-all shadow-lg shadow-orange-100 disabled:opacity-50"
                         >
                             <Save className="w-5 h-5" />
                             {loading ? 'Salvando...' : 'Salvar Despesa'}

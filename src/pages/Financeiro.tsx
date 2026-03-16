@@ -114,7 +114,7 @@ export default function Financeiro() {
 
     // Título e Transações
     doc.setFontSize(20);
-    doc.setTextColor(79, 70, 229); // Indigo 600
+    doc.setTextColor(255, 106, 0); // ZLAI Primary (#FF6A00)
     doc.text('Relatório Financeiro', 14, 22);
 
     doc.setFontSize(10);
@@ -133,7 +133,7 @@ export default function Financeiro() {
       startY: 38,
       head: [['Descrição', 'Categoria', 'Data', 'Tipo', 'Valor']],
       body: tableData,
-      headStyles: { fillColor: [79, 70, 229], fontStyle: 'bold' },
+      headStyles: { fillColor: [255, 106, 0], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { top: 38 },
       didParseCell: (data) => {
@@ -161,7 +161,7 @@ export default function Financeiro() {
         </div>
         <button
           onClick={handleAdd}
-          className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+          className="bg-zlai-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-orange-600 transition-all shadow-lg shadow-orange-100"
         >
           <Plus className="w-5 h-5" />
           Novo Lançamento
@@ -175,7 +175,7 @@ export default function Financeiro() {
           <input
             type="text"
             placeholder="Buscar por descrição ou categoria..."
-            className="w-full pl-12 pr-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-indigo-500 transition-all"
+            className="w-full pl-12 pr-4 py-3 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-zlai-primary transition-all font-medium"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -220,7 +220,7 @@ export default function Financeiro() {
                   onClick={handleExportPDF}
                   className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-lg bg-orange-50 text-zlai-primary flex items-center justify-center">
                     <Download className="w-4 h-4" />
                   </div>
                   <span>Relatório (PDF)</span>
@@ -258,7 +258,7 @@ export default function Financeiro() {
               {loading ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-zlai-primary mx-auto"></div>
                   </td>
                 </tr>
               ) : filteredTransactions.length > 0 ? (
@@ -296,7 +296,7 @@ export default function Financeiro() {
                       <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => handleEdit(t)}
-                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                          className="p-2 text-slate-400 hover:text-zlai-primary hover:bg-orange-50 rounded-lg transition-all"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
@@ -325,7 +325,7 @@ export default function Financeiro() {
         <div className="md:hidden divide-y divide-slate-100">
           {loading ? (
             <div className="px-6 py-12 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-zlai-primary mx-auto"></div>
             </div>
           ) : filteredTransactions.length > 0 ? (
             filteredTransactions.map((t) => (
@@ -357,7 +357,7 @@ export default function Financeiro() {
                 <div className="flex items-center justify-end gap-3 pt-2">
                   <button
                     onClick={() => handleEdit(t)}
-                    className="flex-1 py-2.5 bg-slate-50 text-slate-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-100 active:bg-indigo-50 active:text-indigo-600 active:border-indigo-100 transition-all"
+                    className="flex-1 py-2.5 bg-slate-50 text-slate-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-100 active:bg-orange-50 active:text-zlai-primary active:border-orange-100 transition-all"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                     Editar
@@ -392,7 +392,7 @@ export default function Financeiro() {
 
 function FilterButton({ active, onClick, label, color = 'indigo' }: any) {
   const colors: any = {
-    indigo: active ? "bg-indigo-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50",
+    indigo: active ? "bg-zlai-primary text-white shadow-md shadow-orange-100" : "bg-white text-slate-600 hover:bg-slate-50",
     emerald: active ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50",
     rose: active ? "bg-rose-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50",
   };

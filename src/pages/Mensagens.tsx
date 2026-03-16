@@ -69,8 +69,8 @@ export default function Mensagens() {
     <div className="space-y-6 max-w-5xl mx-auto h-full flex flex-col">
       <div className="flex items-center justify-between shrink-0">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Histórico WhatsApp</h2>
-          <p className="text-slate-500">Acompanhe as interações do assistente.</p>
+          <h2 className="text-2xl font-bold text-zlai-dark tracking-tighter uppercase">ZLAI Messenger</h2>
+          <p className="text-zlai-gray font-medium">Interações em tempo real com sua IA.</p>
         </div>
         <div className="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100 flex items-center gap-2">
           <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
@@ -82,7 +82,7 @@ export default function Mensagens() {
         <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
           {loading ? (
             <div className="flex items-center justify-center h-full">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-zlai-primary"></div>
             </div>
           ) : messages.length > 0 ? (
             messages.map((msg) => (
@@ -105,18 +105,18 @@ export default function Mensagens() {
 
                 {/* AI Response / Status */}
                 <div className="flex items-start gap-4 max-w-[80%] ml-auto flex-row-reverse">
-                  <div className="w-10 h-10 rounded-2xl bg-indigo-600 flex items-center justify-center shrink-0 shadow-lg shadow-indigo-200">
+                  <div className="w-10 h-10 rounded-2xl bg-zlai-primary flex items-center justify-center shrink-0 shadow-lg shadow-orange-200">
                     <Bot className="w-5 h-5 text-white" />
                   </div>
                   <div className="space-y-1 text-right">
                     <div className="flex items-center gap-2 justify-end">
                       <span className="text-[10px] text-slate-400">{format(new Date(msg.created_at), 'HH:mm', { locale: ptBR })}</span>
-                      <span className="text-xs font-bold text-indigo-600">Assistente IA</span>
+                      <span className="text-xs font-bold text-zlai-primary">ZLAI Intelligence</span>
                     </div>
                     <div className={cn(
                       "p-4 rounded-2xl rounded-tr-none text-sm shadow-sm text-left",
-                      msg.status === 'processed' ? "bg-indigo-600 text-white" :
-                        msg.status === 'pending_confirmation' ? "bg-amber-50 text-amber-800 border border-amber-100" :
+                       msg.status === 'processed' ? "bg-zlai-primary text-white" :
+                        msg.status === 'pending_confirmation' ? "bg-orange-50 text-orange-900 border border-orange-100" :
                           msg.status === 'error' ? "bg-slate-100 text-slate-400 italic" :
                             "bg-slate-50 text-slate-500 italic"
                     )}>
@@ -135,13 +135,13 @@ export default function Mensagens() {
                           <div className="flex gap-2 pt-2">
                             <button
                               onClick={() => handleConfirm(msg.id, msg.interpretation)}
-                              className="px-3 py-1.5 bg-amber-200 text-amber-900 rounded-lg font-bold text-xs hover:bg-amber-300 transition-colors"
+                               className="px-3 py-1.5 bg-orange-200 text-orange-900 rounded-lg font-bold text-xs hover:bg-orange-300 transition-colors"
                             >
                               Confirmar
                             </button>
                             <button
                               onClick={() => handleIgnore(msg.id)}
-                              className="px-3 py-1.5 bg-white text-amber-800 rounded-lg font-bold text-xs hover:bg-slate-50 transition-colors"
+                               className="px-3 py-1.5 bg-white text-orange-800 rounded-lg font-bold text-xs hover:bg-slate-50 transition-colors border border-orange-100"
                             >
                               Ignorar
                             </button>

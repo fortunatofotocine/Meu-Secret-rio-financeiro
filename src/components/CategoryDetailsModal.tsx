@@ -30,7 +30,7 @@ export default function CategoryDetailsModal({ isOpen, onClose, data, colors }: 
           {/* Header */}
           <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-2xl bg-indigo-50 text-indigo-600">
+              <div className="p-2.5 rounded-2xl bg-orange-50 text-zlai-primary">
                 <PieChartIcon className="w-6 h-6" />
               </div>
               <div>
@@ -132,9 +132,9 @@ export default function CategoryDetailsModal({ isOpen, onClose, data, colors }: 
                 onClose();
                 navigate('/financeiro');
               }}
-              className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 group"
+              className="w-full bg-zlai-primary text-white py-4 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-orange-600 transition-all shadow-lg shadow-orange-100 group"
             >
-              Ver todos os lançamentos
+              Ver todos os lançamentos ZLAI
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
           </div>

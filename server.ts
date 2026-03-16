@@ -282,8 +282,9 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
   const lowerText = text.toLowerCase();
 
   // Layer 1: Intent Classification
-  let intent: 'finance' | 'event' | 'note' | 'unknown' = 'unknown';
-  if (/(gastei|paguei|recebi|comprei|valor|reais|r\$)/i.test(text)) intent = 'finance';
+  let intent: 'finance' | 'event' | 'note' | 'goal' | 'unknown' = 'unknown';
+  if (/(guardei|poupei|meta|objetivo|pro objetivo|pra meta|guardar)/i.test(text)) intent = 'goal';
+  else if (/(gastei|paguei|recebi|comprei|valor|reais|r\$)/i.test(text)) intent = 'finance';
   else if (/(agendar|marcar|agenda|reunião|compromisso|lembrete|visita)/i.test(text)) intent = 'event';
   else if (/(anotar|anota|observação|obs|lembrar|guardar|escrever)/i.test(text)) intent = 'note';
 
@@ -409,6 +410,49 @@ async function processMessageV2(text: string, currentDateTime: string, msgId: st
         status = 'error';
         reply = "❌ Erro ao salvar anotação.";
       }
+    } else if (interpretation.type === 'goal') {
+      const { amount, description: goalHint } = interpretation.data;
+      if (!amount) {
+        reply = "🎯 Entendi que você quer guardar dinheiro, mas qual o **valor**? (Ex: 'Guardei 100 pra viagem')";
+      } else {
+        // Find best match for goal
+        const { data: userGoals } = await supabase
+          .from('financial_goals')
+          .select('*')
+          .eq('user_id', user_id)
+          .eq('status', 'in_progress');
+
+        if (!userGoals || userGoals.length === 0) {
+          reply = "🎯 Você ainda não tem metas em andamento! Crie uma no sistema primeiro para eu saber onde guardar.";
+        } else {
+          // Find goal by name/category match
+          const bestGoal = userGoals.find(g => 
+            (goalHint && g.name.toLowerCase().includes(goalHint.toLowerCase())) ||
+            (goalHint && g.category.toLowerCase().includes(goalHint.toLowerCase()))
+          ) || (userGoals.length === 1 ? userGoals[0] : null);
+
+          if (!bestGoal) {
+            const list = userGoals.map(g => `- ${g.name}`).join('\n');
+            reply = `🎯 Em qual meta devo registrar os R$ ${amount}?\n\n${list}\n\n(Diga "Guardar na [Nome da Meta]")`;
+          } else {
+            const { error: contributionError } = await supabase.from('goal_contributions').insert([{
+              goal_id: bestGoal.id,
+              user_id,
+              amount,
+              date: new Date().toISOString(),
+              description: `Aporte via WhatsApp: ${text}`
+            }]);
+
+            if (!contributionError) {
+              status = 'processed';
+              reply = `🚀 *Aporte registrado!* R$ ${amount} guardados para a meta: *${bestGoal.name}*. Continue assim! 👏`;
+            } else {
+              status = 'error';
+              reply = "❌ Erro ao registrar aporte na meta.";
+            }
+          }
+        }
+      }
     } else {
       reply = interpretation.reply || "🤔 Não tenho certeza se é um gasto, agendamento ou anotação. Pode ser mais específico?";
     }
@@ -436,7 +480,7 @@ function extractStructuredData(text: string, currentDateTime: string, intent: st
 
   // 1. Value Extraction (R$ 10, 10 reais, 10.50)
   const valueMatch = cleanTextForParsing.match(/(?:r\$\s*|reais\s*)?(\d+(?:[.,]\d+)?)(?:\s*reais|\s*r\$)/i)
-    || cleanTextForParsing.match(/(?:gastei|paguei|recebi|valor)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)/i);
+    || cleanTextForParsing.match(/(?:gastei|paguei|recebi|valor|guardei|poupei)\s+(?:r\$\s*)?(\d+(?:[.,]\d+)?)/i);
 
   if (valueMatch) data.amount = parseFloat(valueMatch[1].replace(',', '.'));
 
@@ -468,7 +512,7 @@ function extractStructuredData(text: string, currentDateTime: string, intent: st
   // 4. Description Extraction (Cleaning) - MUCH MORE CONSERVATIVE
   let cleanDesc = text
     .replace(/\[AUDIO_MESSAGE_ID:[^\]]+\]/g, '')
-    .replace(/(?:gastei|paguei|recebi|recebimento|comprei|agendar|marcar|agenda|reunião|compromisso|lembrete|visita|anotar|anota|obs|mude|alterar|altere|mudar|trocar|troque)\s+/gi, '')
+    .replace(/(?:gastei|paguei|recebi|recebimento|comprei|agendar|marcar|agenda|reunião|compromisso|lembrete|visita|anotar|anota|obs|mude|alterar|altere|mudar|trocar|troque|guardar|guardei|poupei|poupar|meta|objetivo)\s+/gi, '')
     .replace(/(?:hoje|ontem|amanhã|amanha|anteontem|agora|já)/gi, '')
     .replace(/\d{1,2}\/\d{1,2}(?:\/\d{2,4})?/g, '')
     .replace(/\s+/g, ' ')
@@ -629,11 +673,12 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
 
     SAÍDA (APENAS JSON):
     {
-      "type": "finance" | "event" | "note" | "unknown",
+      "type": "finance" | "event" | "note" | "goal" | "unknown",
       "confidence": 0.0 a 1.0,
       "data": { 
         "isUpdate": boolean,
         // Se finance: description, amount (numbers), type (expense/income), category, date (ISO)
+        // Se goal: description (nome/dica da meta), amount (numbers), date (ISO)
         // Se event: title, description, start_time (ISO), end_time (ISO)
         // Se note: description (o texto da anotação)
       },
