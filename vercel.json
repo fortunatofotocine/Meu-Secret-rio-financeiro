@@ -2,7 +2,7 @@
     "version": 2,
     "builds": [
         {
-            "src": "api/index.ts",
+            "src": "server.ts",
             "use": "@vercel/node"
         },
         {
@@ -24,10 +24,10 @@
         },
         {
             "source": "/api/(.*)",
-            "destination": "api/index.ts"
+            "destination": "server.ts"
         },
         {
-            "source": "/((?!api/).*)",
+            "source": "/((?!api/|assets/|.*\\.).*)",
             "destination": "/index.html"
         }
     ]
