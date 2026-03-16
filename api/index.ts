@@ -720,10 +720,15 @@ async function interpretMessage(text: string, suggestedIntent: string = "unknown
   }
 }
 
-// Diagnostic 404 Handler
+// Diagnostic 404 Handler - Precision for Vercel Catch-all
 app.use((req, res) => {
-  console.error(`[404] ${req.method} ${req.url}`);
-  res.status(404).send(`404: Route ${req.url} not found. Express thinks the path is ${req.path}. BaseURL: ${req.baseUrl}`);
+  console.error(`[EXPRESS 404] ${req.method} ${req.url} - Request Path: ${req.path}`);
+  res.status(404).json({
+    error: "Route not found",
+    path: req.url,
+    express_path: req.path,
+    hint: "If this is a nested API route, ensure it is defined in api/index.ts"
+  });
 });
 
 export default app;
