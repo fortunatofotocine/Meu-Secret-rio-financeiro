@@ -1,21 +1,24 @@
 {
     "version": 2,
-    "rewrites": [
+    "routes": [
         {
-            "source": "/api/whatsapp/webhook",
-            "destination": "/api/webhook"
+            "src": "/api/whatsapp/webhook",
+            "dest": "/api/webhook"
         },
         {
-            "source": "/api/health",
-            "destination": "/api/health"
+            "src": "/api/health",
+            "dest": "/api/health"
         },
         {
-            "source": "/api/(.*)",
-            "destination": "/api/index"
+            "src": "/api/(.*)",
+            "dest": "/api/index"
         },
         {
-            "source": "/((?!api/|assets/|favicon|.*\\.).*)",
-            "destination": "/index.html"
+            "handle": "filesystem"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/index.html"
         }
     ]
 }
