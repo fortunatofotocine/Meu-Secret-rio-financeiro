@@ -1,17 +1,41 @@
 {
     "version": 2,
-    "rewrites": [
+    "builds": [
         {
-            "source": "/api/whatsapp/webhook",
-            "destination": "/api/webhook"
+            "src": "api/index.ts",
+            "use": "@vercel/node"
         },
         {
-            "source": "/api/:path*",
-            "destination": "/api/index"
+            "src": "api/webhook.ts",
+            "use": "@vercel/node"
         },
         {
-            "source": "/((?!api/|assets/|favicon|zlai-logo|manifest|.*\\..*).*)",
-            "destination": "/index.html"
+            "src": "package.json",
+            "use": "@vercel/static-build",
+            "config": {
+                "distDir": "dist"
+            }
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/whatsapp/webhook",
+            "dest": "api/webhook.ts"
+        },
+        {
+            "src": "/api/(.*)",
+            "dest": "api/index.ts"
+        },
+        {
+            "handle": "filesystem"
+        },
+        {
+            "src": "/assets/(.*)",
+            "dest": "/assets/$1"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/index.html"
         }
     ]
 }
