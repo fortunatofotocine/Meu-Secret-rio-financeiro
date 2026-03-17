@@ -1,41 +1,21 @@
 {
     "version": 2,
-    "builds": [
+    "rewrites": [
         {
-            "src": "api/index.ts",
-            "use": "@vercel/node"
+            "source": "/api/whatsapp/webhook",
+            "destination": "/api/webhook"
         },
         {
-            "src": "api/webhook.ts",
-            "use": "@vercel/node"
+            "source": "/api/health",
+            "destination": "/api/health"
         },
         {
-            "src": "package.json",
-            "use": "@vercel/static-build",
-            "config": {
-                "distDir": "dist"
-            }
-        }
-    ],
-    "routes": [
-        {
-            "src": "/api/whatsapp/webhook",
-            "dest": "api/webhook.ts"
+            "source": "/api/(.*)",
+            "destination": "/api/index"
         },
         {
-            "src": "/api/(.*)",
-            "dest": "api/index.ts"
-        },
-        {
-            "handle": "filesystem"
-        },
-        {
-            "src": "/assets/(.*)",
-            "dest": "/assets/$1"
-        },
-        {
-            "src": "/(.*)",
-            "dest": "/index.html"
+            "source": "/((?!api/|assets/|favicon|.*\\.).*)",
+            "destination": "/index.html"
         }
     ]
 }
