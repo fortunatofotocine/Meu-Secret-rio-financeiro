@@ -79,8 +79,98 @@ app.get("/whatsapp/webhook", (req, res) => {
   }
 });
 
+// WhatsApp Webhook (POST) - Principal Message Handler
+app.post("/api/whatsapp/webhook", async (req, res) => {
+  const body = req.body;
+  
+  // 1. Confirm POST reception and log body
+  console.log("--- WhatsApp Webhook POST Received ---");
+  console.log("Full Body:", JSON.stringify(body, null, 2));
+
+  // Early exit if it's not a WhatsApp business account object
+  if (body.object !== 'whatsapp_business_account') {
+    console.log("[Webhook] Object is not whatsapp_business_account. Ignoring.");
+    return res.status(200).send('OK');
+  }
+
+  try {
+    const entry = body.entry?.[0];
+    const changes = entry?.changes?.[0];
+    const value = changes?.value;
+    
+    // 2. Handle Status Updates (Ignorar sem quebrar)
+    if (value?.statuses) {
+      console.log("[Webhook] Received status update (sent/delivered/read). Ignoring.");
+      return res.status(200).send('OK');
+    }
+
+    const message = value?.messages?.[0];
+
+    // 3. Confirm existence of messages or ignore
+    if (!message) {
+      console.log("[Webhook] No message found in payload.");
+      return res.status(200).send('OK');
+    }
+
+    // 4. Extract and check type
+    const from = message.from;
+    const msgId = message.id;
+    const msgType = message.type;
+    const phone_number_id = value?.metadata?.phone_number_id;
+
+    console.log(`[Extraction] From: ${from} | ID: ${msgId} | Type: ${msgType} | PhoneID: ${phone_number_id}`);
+
+    // Solo processar tipo 'text'
+    if (msgType !== 'text') {
+      console.log(`[Webhook] Message type is ${msgType}, not text. Ignoring.`);
+      return res.status(200).send('OK');
+    }
+
+    const msgBody = message.text?.body;
+    console.log(`[Extraction] Message Body: "${msgBody}"`);
+
+    if (!msgBody) {
+      console.log("[Webhook] Message text.body is empty. Ignoring.");
+      return res.status(200).send('OK');
+    }
+
+    // 5. Environmental Check
+    if (!process.env.GEMINI_API_KEY || !process.env.WHATSAPP_ACCESS_TOKEN || !phone_number_id) {
+      console.error("[Config] Missing GEMINI_API_KEY, WHATSAPP_ACCESS_TOKEN or phone_number_id");
+      return res.status(200).send('OK');
+    }
+
+    // 6. Gemini Integration Log
+    console.log("[Gemini] Requesting interpretation...");
+    const currentDateTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    
+    // We use the existing logic but wrapped with logs
+    let interpretation;
+    try {
+      interpretation = await interpretMessage(msgBody, "unknown", currentDateTime);
+      console.log("[Gemini] Success response:", JSON.stringify(interpretation));
+    } catch (aiErr) {
+      console.error("[Gemini] Extraction failure:", aiErr);
+      interpretation = {
+        reply: "Não consegui entender sua mensagem. Pode tentar novamente?"
+      };
+    }
+
+    // 7. Full Processing (Database, etc.)
+    // Note: processWhatsAppMessage does its own internal logging to Supabase
+    await processWhatsAppMessage(from, msgBody, msgId, body, phone_number_id);
+
+    res.status(200).send('OK');
+  } catch (err: any) {
+    console.error("[Webhook] Global Error:", err.message);
+    res.status(200).send('OK');
+  }
+});
+
+// Legacy/Compatibility Routes
 app.post("/whatsapp/webhook", (req, res) => {
-  console.log("--- WhatsApp Webhook Received (POST - Fallback) ---");
+  console.log("--- Redirecting Legacy Webhook to /api ---");
+  // Envia um 200 pra meta mas loga que a rota mudou
   res.status(200).send("OK");
 });
 
