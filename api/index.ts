@@ -31,8 +31,14 @@ app.use((req, res, next) => {
 
 // --- API Routes ---
 
-app.get(["/api/health", "/api/index", "/health", "/index"], (req, res) => {
-  res.json({ status: "ok", message: "Secretário Financeiro API v1.0.6 is running", deploy_id: "consolidated_fix" });
+app.get(["/", "/api", "/api/health", "/api/index", "/health", "/index"], (req, res) => {
+  res.json({ 
+    status: "ok", 
+    message: "ZLAI API v1.0.7 - Consolidated & Resilient", 
+    deploy_id: "resilient_final",
+    path: req.path,
+    url: req.url
+  });
 });
 
 // --- NEW SPECIFIC WHATSAPP WEBHOOK ROUTES ---
@@ -81,7 +87,7 @@ app.get("/whatsapp/webhook", (req, res) => {
 });
 
 // WhatsApp Webhook (POST) - Principal Message Handler
-app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
+app.post(["/api/whatsapp/webhook", "/whatsapp/webhook", "/webhook"], async (req, res) => {
   const body = req.body;
   
   // 1. Confirm POST reception and log body
