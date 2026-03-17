@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 });
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.4.0 - Stateful Intelligence", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.5.0 - Strict Regex Intelligence", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -52,16 +52,27 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       let detectedIntent = "unknown";
       let extractedData: any = {};
 
-      // 1. Greeting Pre-processor
+      // 1. Strict Regex Pre-processor (USER REQUESTED EXACT MATCH)
+      // gastei\s+(\d+)\s+(no|na)\s+(.*)
+      const strictExpenseRegex = /gastei\s+(\d+)\s+(no|na)\s+(.*)/i;
+      const strictMatch = msgBody.match(strictExpenseRegex);
+
+      // 2. Greeting Pre-processor
       const greetingRegex = /^(oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)$/i;
-      // 2. Affirmation Pre-processor
+      // 3. Affirmation Pre-processor
       const affirmationRegex = /^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)$/i;
-      // 3. Expense Pre-processor
-      const expenseRegex = /gastei\s+(\d+(?:[.,]\d+)?)(?:\s+(?:no|na|em|de)\s+([^?.]+))?/i;
 
-      const expenseMatch = msgBody.match(expenseRegex);
-
-      if (greetingRegex.test(msgBody)) {
+      if (strictMatch) {
+        // BYPASS AI IF STRICT REGEX MATCHES
+        detectedIntent = "create_expense";
+        extractedData = {
+          intent: "create_expense",
+          amount: parseFloat(strictMatch[1]),
+          category: strictMatch[3].trim()
+        };
+        finalResponse = `Entendi um gasto de R$ ${extractedData.amount} no ${extractedData.category}. Posso registrar assim?`;
+        console.log(`[Strict Regex Match] Amount: ${extractedData.amount}, Category: ${extractedData.category}`);
+      } else if (greetingRegex.test(msgBody)) {
         detectedIntent = "greeting";
         finalResponse = "Olá! Posso te ajudar a registrar gastos, consultar seus gastos ou organizar compromissos.";
       } else if (affirmationRegex.test(msgBody)) {
@@ -85,7 +96,6 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
           } else {
             finalResponse = "Confirmado! Ação realizada com sucesso. ✅";
           }
-          // Update status to processed
           await supabase
             .from("whatsapp_messages")
             .update({ status: "processed" })
@@ -94,14 +104,6 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         } else {
           finalResponse = "Não encontrei nenhuma ação pendente para confirmar. Como posso te ajudar?";
         }
-      } else if (expenseMatch) {
-        detectedIntent = "create_expense";
-        extractedData = {
-          intent: "create_expense",
-          amount: parseFloat(expenseMatch[1].replace(',', '.')),
-          category: expenseMatch[2] || null
-        };
-        finalResponse = `Entendi um gasto de R$ ${extractedData.amount}${extractedData.category ? ` no ${extractedData.category}` : ""}. Posso registrar assim?`;
       } else {
         // AI Fallback
         try {
