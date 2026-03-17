@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 });
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.1.5 - Absolute Clean", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.2.0 - Structured Intelligence", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -35,31 +35,66 @@ app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
 
 app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
   const body = req.body;
-  console.log("--- WhatsApp POST Received ---");
-  console.log("Body:", JSON.stringify(body, null, 2));
-
+  console.log("--- WhatsApp Webhook Received ---");
+  
   if (body.object === 'whatsapp_business_account') {
-    const entry = body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
+    const value = body.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
 
     if (message && message.type === 'text') {
       const from = message.from;
-      const msgBody = message.text?.body;
+      const msgBody = (message.text?.body || "").trim();
       const phone_number_id = value?.metadata?.phone_number_id;
 
-      let aiResponse = "Não consegui entender sua mensagem. Pode tentar novamente?";
-      try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
-        const result = await model.generateContent(`Usuário: "${msgBody}". Responda de forma curta e amigável.`);
-        aiResponse = result.response.text();
-      } catch (e) {
-        console.error("[AI] Error:", e);
+      console.log(`[Input] From: ${from}, Text: "${msgBody}"`);
+
+      let finalResponse = "Pode me explicar melhor? Ex: 'gastei 30 no mercado'";
+      let detectedIntent = "unknown";
+      let extractedData = {};
+
+      // 1. Greeting Pre-processor
+      const greetings = /^(oi|olá|ola|bom dia|boa tarde|boa noite)$/i;
+      if (greetings.test(msgBody)) {
+        detectedIntent = "greeting";
+        finalResponse = "Olá! Posso te ajudar a registrar gastos, consultar seus gastos ou organizar compromissos.";
+      } else {
+        // 2. AI Intelligence Layer (Classification)
+        try {
+          const model = genAI.getGenerativeModel({ 
+            model: "gemini-2.0-flash-lite",
+            generationConfig: { responseMimeType: "application/json" }
+          });
+          
+          const prompt = `Analyze user input for a financial assistant. Return JSON only.
+          Intents: "create_expense", "query_summary", "create_event", "unknown".
+          Include fields: amount (number), category (string), description (string), date (string).
+          Input: "${msgBody}"`;
+
+          const result = await model.generateContent(prompt);
+          const aiJson = JSON.parse(result.response.text());
+          detectedIntent = aiJson.intent;
+          extractedData = aiJson;
+
+          // 3. Response Orchestrator (Deterministic)
+          if (detectedIntent === "create_expense" && aiJson.amount) {
+            finalResponse = `Entendi um gasto de R$ ${aiJson.amount}${aiJson.category ? ` no ${aiJson.category}` : ""}. Posso registrar assim?`;
+          } else if (detectedIntent === "query_summary") {
+            finalResponse = `Entendi que você quer consultar seus gastos${aiJson.date ? ` de ${aiJson.date}` : " de hoje"}.`;
+          } else if (detectedIntent === "create_event" && aiJson.description) {
+            finalResponse = `Entendi um compromisso: ${aiJson.description}${aiJson.date ? ` ${aiJson.date}` : ""}.`;
+          } else if (detectedIntent === "greeting") {
+            finalResponse = "Olá! Posso te ajudar a registrar gastos, consultar seus gastos ou organizar compromissos.";
+          }
+        } catch (e) {
+          console.error("[AI Classification Error]", e);
+        }
       }
 
+      console.log(`[Output] Intent: ${detectedIntent}, Data: ${JSON.stringify(extractedData)}, Final: "${finalResponse}"`);
+
+      // 4. Send Response
       if (phone_number_id && process.env.WHATSAPP_ACCESS_TOKEN) {
-        const resp = await fetch(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
+        await fetch(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
@@ -69,16 +104,9 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
             messaging_product: "whatsapp",
             to: from,
             type: "text",
-            text: { body: aiResponse },
+            text: { body: finalResponse },
           }),
         });
-        const result = await resp.json();
-        console.log("[WhatsApp API Response]", JSON.stringify(result));
-        
-        await supabase.from("system_logs").insert([{
-          event_type: "whatsapp_message_processed",
-          payload: { from, text: msgBody, reply: aiResponse, whatsapp_result: result }
-        }]);
       }
     }
   }
