@@ -1,45 +1,25 @@
 {
     "version": 2,
-    "rewrites": [
+    "functions": {
+        "api/server.ts": {
+            "runtime": "@vercel/node"
+        }
+    },
+    "routes": [
         {
-            "source": "/api/whatsapp/webhook",
-            "destination": "/api/webhook"
+            "src": "/api/(.*)",
+            "dest": "/api/server"
         },
         {
-            "source": "/api/(.*)",
-            "destination": "/api/index"
+            "handle": "filesystem"
         },
         {
-            "source": "/",
-            "destination": "/index.html"
+            "src": "/assets/(.*)",
+            "dest": "/assets/$1"
         },
         {
-            "source": "/login",
-            "destination": "/index.html"
-        },
-        {
-            "source": "/register",
-            "destination": "/index.html"
-        },
-        {
-            "source": "/financeiro",
-            "destination": "/index.html"
-        },
-        {
-            "source": "/despesas-fixas",
-            "destination": "/index.html"
-        },
-        {
-            "source": "/agenda",
-            "destination": "/index.html"
-        },
-        {
-            "source": "/mensagens",
-            "destination": "/index.html"
-        },
-        {
-            "source": "/metas",
-            "destination": "/index.html"
+            "src": "/((?!api/).*)",
+            "dest": "/index.html"
         }
     ]
 }
