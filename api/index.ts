@@ -13,94 +13,51 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL ||
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", supabaseKey || "placeholder");
 
-// Gemini AI Setup
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// --- Diagnostic Middleware ---
-app.use((req, res, next) => {
-  console.log(`[Request] ${req.method} ${req.url} | Path: ${req.path}`);
-  next();
-});
-
-// --- API Routes ---
-
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ 
-    status: "ok", 
-    message: "ZLAI API v1.1.0 - Clean & Monolithic", 
-    timestamp: new Date().toISOString() 
-  });
+  res.json({ status: "ok", version: "1.1.2", timestamp: new Date().toISOString() });
 });
 
-// WhatsApp Webhook Verification (GET)
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-
-  if (mode === "subscribe" && token === "zlai_webhook_token") {
-    return res.status(200).send(challenge);
-  } else {
-    return res.sendStatus(403);
-  }
+  if (mode === "subscribe" && token === "zlai_webhook_token") return res.status(200).send(challenge);
+  return res.sendStatus(403);
 });
 
-// WhatsApp Webhook (POST) - Principal Message Handler
 app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
   const body = req.body;
-  
-  // 1. Log body as requested
-  console.log("--- WhatsApp Webhook POST Received ---");
-  console.log("Full Body:", JSON.stringify(body, null, 2));
+  console.log("--- Webhook POST Received ---");
+  console.log("Body:", JSON.stringify(body, null, 2));
 
-  if (body.object !== 'whatsapp_business_account') {
-    return res.status(200).send('OK');
-  }
-
-  try {
+  if (body.object === 'whatsapp_business_account') {
     const entry = body.entry?.[0];
     const changes = entry?.changes?.[0];
     const value = changes?.value;
-    
-    // Ignore status updates
-    if (value?.statuses) {
-      console.log("[Webhook] Status update received. Ignoring.");
-      return res.status(200).send('OK');
-    }
-
     const message = value?.messages?.[0];
-    if (!message || message.type !== 'text') {
-      console.log("[Webhook] No text message found. Ignoring.");
-      return res.status(200).send('OK');
-    }
 
-    const from = message.from;
-    const msgId = message.id;
-    const msgBody = message.text?.body;
-    const phone_number_id = value?.metadata?.phone_number_id;
+    if (message && message.type === 'text') {
+      const from = message.from;
+      const msgId = message.id;
+      const msgBody = message.text?.body;
+      const phone_number_id = value?.metadata?.phone_number_id;
 
-    console.log(`[Extraction] From: ${from} | Text: "${msgBody}" | PhoneID: ${phone_number_id}`);
+      console.log(`[Flow] Received from ${from}: "${msgBody}"`);
 
-    // Call Gemini with short/clear instructions
-    console.log("[Gemini] Requesting response...");
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
-    let aiResponse;
-    const currentDateTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      let aiResponse = "Não consegui entender sua mensagem. Pode tentar novamente?";
+      try {
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
+        const result = await model.generateContent(`Usuário: "${msgBody}". Responda de forma curta e amigável.`);
+        aiResponse = result.response.text();
+        console.log("[AI] Response:", aiResponse);
+      } catch (e) {
+        console.error("[AI] Error:", e);
+      }
 
-    try {
-      const prompt = `Você é um assistente financeiro curto e claro. O usuário disse: "${msgBody}". Responda de forma curta e amigável. Se não entender, peça para repetir. Agora é ${currentDateTime}.`;
-      const result = await model.generateContent(prompt);
-      aiResponse = result.response.text();
-      console.log("[Gemini] AI Result:", aiResponse);
-    } catch (aiErr) {
-      console.error("[Gemini] Error:", aiErr);
-      aiResponse = "Não consegui entender sua mensagem. Pode tentar novamente?";
-    }
-
-    // Reply via WhatsApp Cloud API
-    if (phone_number_id && process.env.WHATSAPP_ACCESS_TOKEN) {
-        console.log("[WhatsApp] Sending reply...");
-        const response = await fetch(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
+      if (phone_number_id && process.env.WHATSAPP_ACCESS_TOKEN) {
+        await fetch(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
@@ -113,25 +70,15 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
             text: { body: aiResponse },
           }),
         });
-        const whatsappResult = await response.json();
-        console.log("[WhatsApp] API Status Code:", response.status);
-        console.log("[WhatsApp] API Result:", JSON.stringify(whatsappResult));
-
-        // Log to Supabase for audit
+        
         await supabase.from("system_logs").insert([{
-          event_type: "whatsapp_message_processed",
-          payload: { from, text: msgBody, reply: aiResponse, whatsapp_api_status: response.status }
+          event_type: "whatsapp_webhook_processed",
+          payload: { from, text: msgBody, reply: aiResponse }
         }]);
-    } else {
-        console.error("[WhatsApp] Missing configuration (Token or PhoneID)");
+      }
     }
-
-    res.status(200).send('OK');
-  } catch (err: any) {
-    console.error("[Webhook] Global Error:", err.message);
-    res.status(200).send('OK');
   }
+  res.status(200).send('OK');
 });
 
-// Export for Vercel
 export default app;
