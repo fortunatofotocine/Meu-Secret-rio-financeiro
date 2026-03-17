@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 });
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.5.0 - Strict Regex Intelligence", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.5.1 - Execution Flow", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -51,32 +51,87 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       let finalResponse = "Pode me explicar melhor? Ex: 'gastei 30 no mercado'";
       let detectedIntent = "unknown";
       let extractedData: any = {};
+      let parserUsed = "none";
 
-      // 1. Strict Regex Pre-processor (USER REQUESTED EXACT MATCH)
-      // gastei\s+(\d+)\s+(no|na)\s+(.*)
-      const strictExpenseRegex = /gastei\s+(\d+)\s+(no|na)\s+(.*)/i;
-      const strictMatch = msgBody.match(strictExpenseRegex);
-
-      // 2. Greeting Pre-processor
+      // 1. DETERMINISTIC PARSERS (STRICT REGEX)
+      const expenseRegex = /^(?:gastei|paguei)\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:no|na|em|de)\s+(.*)/i;
+      const incomeRegex = /^recebi\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:do|da|de|dos|das)\s+(.*)/i;
       const greetingRegex = /^(oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)$/i;
-      // 3. Affirmation Pre-processor
       const affirmationRegex = /^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)$/i;
 
-      if (strictMatch) {
-        // BYPASS AI IF STRICT REGEX MATCHES
+      const expenseMatch = msgBody.match(expenseRegex);
+      const incomeMatch = msgBody.match(incomeRegex);
+
+      // --- USER IDENTIFICATION ---
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("whatsapp_number", from)
+        .single();
+
+      if (expenseMatch) {
+        parserUsed = "regex_expense";
         detectedIntent = "create_expense";
-        extractedData = {
-          intent: "create_expense",
-          amount: parseFloat(strictMatch[1]),
-          category: strictMatch[3].trim()
-        };
-        finalResponse = `Entendi um gasto de R$ ${extractedData.amount} no ${extractedData.category}. Posso registrar assim?`;
-        console.log(`[Strict Regex Match] Amount: ${extractedData.amount}, Category: ${extractedData.category}`);
+        const amount = parseFloat(expenseMatch[1].replace(',', '.'));
+        const category = expenseMatch[2].trim();
+        
+        if (!profile) {
+          finalResponse = "Não encontrei seu cadastro. Por favor, registre seu número no site ZLAI.";
+        } else {
+          // SAVE TO DATABASE IMMEDIATELY
+          const { error: insError } = await supabase.from("transactions").insert({
+            user_id: profile.id,
+            amount: amount,
+            category: category,
+            description: `WhatsApp: ${msgBody}`,
+            type: 'expense',
+            occurred_at: new Date().toISOString(),
+            source: 'whatsapp'
+          });
+          
+          if (!insError) {
+            finalResponse = `Registrei um gasto de R$ ${amount} em ${category}. ✅`;
+            extractedData = { intent: "create_expense", amount, category, status: "saved" };
+          } else {
+            console.error("[Insert Error]", insError);
+            finalResponse = "Houve um erro ao salvar seu gasto. Tente novamente em instantes.";
+          }
+        }
+      } else if (incomeMatch) {
+        parserUsed = "regex_income";
+        detectedIntent = "create_income";
+        const amount = parseFloat(incomeMatch[1].replace(',', '.'));
+        const source = incomeMatch[2].trim();
+
+        if (!profile) {
+          finalResponse = "Não encontrei seu cadastro. Por favor, registre seu número no site ZLAI.";
+        } else {
+          // SAVE TO DATABASE IMMEDIATELY
+          const { error: insError } = await supabase.from("transactions").insert({
+            user_id: profile.id,
+            amount: amount,
+            category: source,
+            description: `WhatsApp: ${msgBody}`,
+            type: 'income',
+            occurred_at: new Date().toISOString(),
+            source: 'whatsapp'
+          });
+
+          if (!insError) {
+            finalResponse = `Registrei uma entrada de R$ ${amount} de ${source}. ✅`;
+            extractedData = { intent: "create_income", amount, source, status: "saved" };
+          } else {
+            console.error("[Insert Error]", insError);
+            finalResponse = "Houve um erro ao salvar sua entrada. Tente novamente em instantes.";
+          }
+        }
       } else if (greetingRegex.test(msgBody)) {
+        parserUsed = "regex_greeting";
         detectedIntent = "greeting";
         finalResponse = "Olá! Posso te ajudar a registrar gastos, consultar seus gastos ou organizar compromissos.";
       } else if (affirmationRegex.test(msgBody)) {
-        // LOOKUP PREVIOUS STATE
+        parserUsed = "regex_affirmation";
+        // LOOKUP PREVIOUS STATE (for AI confirming flow)
         const { data: lastMsg } = await supabase
           .from("whatsapp_messages")
           .select("interpretation")
@@ -89,26 +144,18 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         if (lastMsg?.interpretation) {
           const interp = lastMsg.interpretation as any;
           detectedIntent = "confirm";
-          if (interp.intent === "create_expense") {
-            finalResponse = `Feito! Gasto de R$ ${interp.amount}${interp.category ? ` no ${interp.category}` : ""} registrado com sucesso. ✅`;
-          } else if (interp.intent === "create_event") {
-            finalResponse = `Feito! Compromisso "${interp.description || "Agendado"}" registrado com sucesso. ✅`;
-          } else {
-            finalResponse = "Confirmado! Ação realizada com sucesso. ✅";
-          }
-          await supabase
-            .from("whatsapp_messages")
-            .update({ status: "processed" })
-            .eq("sender_number", from)
-            .eq("status", "pending_confirmation");
+          // IN THIS PHASE, WE ONLY CONFIRM VERBALLY FOR AI FALLBACK
+          finalResponse = `Feito! Ação "${interp.intent}" confirmada com sucesso. ✅`;
+          await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("sender_number", from).eq("status", "pending_confirmation");
         } else {
-          finalResponse = "Não encontrei nenhuma ação pendente para confirmar. Como posso te ajudar?";
+          finalResponse = "Não encontrei nenhuma ação pendente. O que deseja fazer?";
         }
       } else {
-        // AI Fallback
+        // 2. AI FALLBACK (CONFIRMATION ONLY)
+        parserUsed = "ai_fallback";
         try {
           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const prompt = `Classify this financial input and return ONLY JSON. Intents: create_expense, query_summary, create_event, greeting, unknown. Input: "${msgBody}"`;
+          const prompt = `Classify this financial input as JSON. Intents: create_expense, create_income, query_summary, unknown. User: "${msgBody}"`;
           const result = await model.generateContent(prompt);
           const raw = result.response.text().replace(/```json|```/gi, "").trim();
           const start = raw.indexOf("{");
@@ -119,45 +166,35 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
             extractedData = aiJson;
 
             if (detectedIntent === "create_expense" && aiJson.amount) {
-              finalResponse = `Entendi um gasto de R$ ${aiJson.amount}${aiJson.category ? ` no ${aiJson.category}` : ""}. Posso registrar assim?`;
-            } else if (detectedIntent === "query_summary") {
-              finalResponse = `Entendi que você quer consultar seus gastos${aiJson.date ? ` de ${aiJson.date}` : " de hoje"}.`;
-            } else if (detectedIntent === "create_event") {
-              finalResponse = `Entendi um compromisso: ${aiJson.description || msgBody}. Posso agendar?`;
+              finalResponse = `Entendi um gasto de R$ ${aiJson.amount}${aiJson.category ? ` em ${aiJson.category}` : ""}. Posso registrar assim?`;
+            } else if (detectedIntent === "create_income" && aiJson.amount) {
+              finalResponse = `Entendi uma entrada de R$ ${aiJson.amount}. Posso registrar assim?`;
             }
           }
         } catch (e) {
-          console.error("[AI Error]", e);
+          console.error("[AI Logic Error]", e);
         }
       }
 
-      console.log(`[Output] Intent: ${detectedIntent}, Data: ${JSON.stringify(extractedData)}, Final: "${finalResponse}"`);
+      console.log(`[Execution Log] Parser: ${parserUsed}, Intent: ${detectedIntent}, Payload: ${JSON.stringify(extractedData)}, Status: ${finalResponse.includes('✅') ? 'Success' : 'Pending/Fail'}`);
 
-      // SAVE STATE IF PENDING
-      const isPending = finalResponse.includes("Posso registrar") || finalResponse.includes("Posso agendar");
+      // SAVE WEBHOOK TO LOG TABLE
+      const isPending = finalResponse.includes("Posso registrar");
       await supabase.from("whatsapp_messages").insert({
         whatsapp_id: message.id,
         sender_number: from,
         message_text: msgBody,
         status: isPending ? "pending_confirmation" : "processed",
-        interpretation: extractedData || { intent: detectedIntent },
+        interpretation: { ...extractedData, parserUsed, detectedIntent },
         raw_data: body
       });
 
-      // SEND WHATSAPP
+      // SEND RESPONSE
       if (phone_number_id && process.env.WHATSAPP_ACCESS_TOKEN) {
         await fetch(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
           method: "POST",
-          headers: {
-            "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to: from,
-            type: "text",
-            text: { body: finalResponse },
-          }),
+          headers: { "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ messaging_product: "whatsapp", to: from, type: "text", text: { body: finalResponse } }),
         });
       }
     }
