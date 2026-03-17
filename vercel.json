@@ -6,11 +6,39 @@
             "destination": "/api/webhook"
         },
         {
-            "source": "/api/:path*",
+            "source": "/api/(.*)",
             "destination": "/api/index"
         },
         {
-            "source": "/((?!api/|.*\\.).*)",
+            "source": "/",
+            "destination": "/index.html"
+        },
+        {
+            "source": "/login",
+            "destination": "/index.html"
+        },
+        {
+            "source": "/register",
+            "destination": "/index.html"
+        },
+        {
+            "source": "/financeiro",
+            "destination": "/index.html"
+        },
+        {
+            "source": "/despesas-fixas",
+            "destination": "/index.html"
+        },
+        {
+            "source": "/agenda",
+            "destination": "/index.html"
+        },
+        {
+            "source": "/mensagens",
+            "destination": "/index.html"
+        },
+        {
+            "source": "/metas",
             "destination": "/index.html"
         }
     ]
