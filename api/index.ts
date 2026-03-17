@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 });
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.2.1 - Robust Intelligence", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.3.0 - Hybrid Intelligence", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -50,105 +50,77 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
 
       let finalResponse = "Pode me explicar melhor? Ex: 'gastei 30 no mercado'";
       let detectedIntent = "unknown";
-      let extractedData = {};
+      let extractedData: any = {};
 
-      // 1. Greeting Pre-processor
-      const greetings = /^(oi|olá|ola|bom dia|boa tarde|boa noite)$/i;
-      if (greetings.test(msgBody)) {
+      // 1. Greeting Pre-processor (High Priority)
+      const greetingRegex = /^(oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)$/i;
+      
+      // 2. Expense Pre-processor (High Priority)
+      const expenseRegex = /gastei\s+(\d+(?:[.,]\d+)?)(?:\s+(?:no|na|em|de)\s+([^?.]+))?/i;
+      
+      // 3. Query Pre-processor (High Priority)
+      const queryRegex = /^(quanto|quais|quais sâo|extrato|saldo|resumo)/i;
+
+      const expenseMatch = msgBody.match(expenseRegex);
+
+      if (greetingRegex.test(msgBody)) {
         detectedIntent = "greeting";
         finalResponse = "Olá! Posso te ajudar a registrar gastos, consultar seus gastos ou organizar compromissos.";
+      } else if (expenseMatch) {
+        detectedIntent = "create_expense";
+        extractedData = {
+          intent: "create_expense",
+          amount: parseFloat(expenseMatch[1].replace(',', '.')),
+          category: expenseMatch[2] || null
+        };
+        finalResponse = `Entendi um gasto de R$ ${extractedData.amount}${extractedData.category ? ` no ${extractedData.category}` : ""}. Posso registrar assim?`;
       } else {
-        // 2. AI Intelligence Layer (Classification)
+        // 4. AI Intelligence Layer (Fallback for Complex Phrases)
         try {
-          const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.0-flash-lite",
-            generationConfig: { responseMimeType: "application/json" }
-          });
+          // Use 1.5 flash for stability in JSON mode
+          const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
           
-          const prompt = `Você é um classificador de intenções.
-Responda APENAS com JSON válido, sem explicação, sem texto extra.
+          const prompt = `Você é um classificador financeiro.
+Responda APENAS JSON.
+Intents: create_expense, query_summary, create_event, greeting, unknown.
 
-Formato:
-{
-  "intent": "create_expense | query_summary | create_event | greeting | unknown",
-  "amount": number | null,
-  "category": string | null,
-  "date": string | null
-}
+Input: "${msgBody}"
 
-Exemplos:
-
-Input: gastei 50 no mercado
-Output:
-{
-  "intent": "create_expense",
-  "amount": 50,
-  "category": "mercado",
-  "date": null
-}
-
-Input: quanto gastei hoje
-Output:
-{
-  "intent": "query_summary",
-  "amount": null,
-  "category": null,
-  "date": "today"
-}
-
-Regra crítica:
-NUNCA escreva texto fora do JSON.
-NUNCA use markdown.
-NUNCA explique nada.
-RETORNE APENAS JSON.
-
-Input do usuário: "${msgBody}"`;
+Ex: {"intent": "create_expense", "amount": 50, "category": "mercado", "date": null}`;
 
           const result = await model.generateContent(prompt);
           const rawResponse = result.response.text();
-          console.log(`[AI Raw Response] "${rawResponse}"`);
+          console.log(`[AI Raw] "${rawResponse}"`);
 
-          // Robust JSON Sanitization
-          let sanitizedJson = rawResponse.trim();
-          if (sanitizedJson.startsWith("```")) {
-            sanitizedJson = sanitizedJson.replace(/^```json\s*/, "").replace(/```$/, "").trim();
+          let sanitized = rawResponse.replace(/```json|```/gi, "").trim();
+          const start = sanitized.indexOf("{");
+          const end = sanitized.lastIndexOf("}");
+          if (start !== -1 && end !== -1) {
+            sanitized = sanitized.substring(start, end + 1);
           }
-          const firstBrace = sanitizedJson.indexOf("{");
-          const lastBrace = sanitizedJson.lastIndexOf("}");
-          if (firstBrace !== -1 && lastBrace !== -1) {
-            sanitizedJson = sanitizedJson.substring(firstBrace, lastBrace + 1);
-          }
-          
-          console.log(`[AI Sanitized] "${sanitizedJson}"`);
 
-          try {
-            const aiJson = JSON.parse(sanitizedJson);
-            detectedIntent = aiJson.intent;
-            extractedData = aiJson;
+          const aiJson = JSON.parse(sanitized);
+          detectedIntent = aiJson.intent;
+          extractedData = aiJson;
 
-            // 3. Response Orchestrator (Deterministic)
-            if (detectedIntent === "create_expense" && aiJson.amount) {
-              finalResponse = `Entendi um gasto de R$ ${aiJson.amount}${aiJson.category ? ` no ${aiJson.category}` : ""}. Posso registrar assim?`;
-            } else if (detectedIntent === "query_summary") {
-              finalResponse = `Entendi que você quer consultar seus gastos${aiJson.date ? ` de ${aiJson.date}` : " de hoje"}.`;
-            } else if (detectedIntent === "create_event" && (aiJson.description || aiJson.intent === "create_event")) {
-              const desc = aiJson.description || msgBody;
-              finalResponse = `Entendi um compromisso: ${desc}${aiJson.date ? ` ${aiJson.date}` : ""}.`;
-            } else if (detectedIntent === "greeting") {
-              finalResponse = "Olá! Posso te ajudar a registrar gastos, consultar seus gastos ou organizar compromissos.";
-            }
-          } catch (parseError) {
-            console.error("[JSON Parse Error]", parseError);
-            console.error("[Failed String]", sanitizedJson);
+          if (detectedIntent === "create_expense" && aiJson.amount) {
+            finalResponse = `Entendi um gasto de R$ ${aiJson.amount}${aiJson.category ? ` no ${aiJson.category}` : ""}. Posso registrar assim?`;
+          } else if (detectedIntent === "query_summary") {
+            finalResponse = `Entendi que você quer consultar seus gastos${aiJson.date ? ` de ${aiJson.date}` : " de hoje"}.`;
+          } else if (detectedIntent === "create_event") {
+            const desc = aiJson.description || msgBody;
+            finalResponse = `Entendi um compromisso: ${desc}${aiJson.date ? ` ${aiJson.date}` : ""}.`;
+          } else if (detectedIntent === "greeting") {
+            finalResponse = "Olá! Posso te ajudar a registrar gastos, consultar seus gastos ou organizar compromissos.";
           }
         } catch (e) {
-          console.error("[AI Classification Error]", e);
+          console.error("[AI Logic Error]", e);
         }
       }
 
       console.log(`[Output] Intent: ${detectedIntent}, Data: ${JSON.stringify(extractedData)}, Final: "${finalResponse}"`);
 
-      // 4. Send Response
+      // 5. Send Response
       if (phone_number_id && process.env.WHATSAPP_ACCESS_TOKEN) {
         await fetch(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
           method: "POST",
