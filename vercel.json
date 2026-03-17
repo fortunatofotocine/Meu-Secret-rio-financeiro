@@ -2,15 +2,11 @@
     "version": 2,
     "rewrites": [
         {
-            "source": "/api/whatsapp/webhook",
-            "destination": "/api/index"
-        },
-        {
             "source": "/api/:path*",
-            "destination": "/api/index"
+            "destination": "/api"
         },
         {
-            "source": "/((?!api/|assets/|favicon|zlai-logo|manifest|.*\\..*).*)",
+            "source": "/((?!api/|assets/|favicon|manifest|zlai-logo|.*\\..*).*)",
             "destination": "/index.html"
         }
     ]
