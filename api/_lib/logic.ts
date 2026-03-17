@@ -822,20 +822,3 @@ app.use((req, res) => {
 });
 
 export default app;
-
-// Only run standalone server if not on Vercel
-if (process.env.NODE_ENV !== "production") {
-  async function setupVite() {
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  }
-  setupVite();
-}
