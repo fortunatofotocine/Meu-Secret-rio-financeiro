@@ -1,3 +1,5 @@
 export default function handler(req, res) {
-  res.status(200).send("webhook ok");
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/plain');
+  res.end('webhook ok');
 }
