@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 });
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.6.1 - Timezone Fixed", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.6.2 - Regex Punctuation Fixed", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -93,9 +93,9 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
 
       const expenseRegex = /^(?:gastei|paguei)\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:no|na|em|de)\s+(.*)/i;
       const incomeRegex = /^recebi\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:do|da|de|dos|das)\s+(.*)/i;
-      const queryRegex = /^quanto\s+(gastei|recebi)\s+(hoje|essa semana|esta semana|este mês|esse mês)$/i;
-      const greetingRegex = /^(oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)$/i;
-      const affirmationRegex = /^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)$/i;
+      const queryRegex = /^quanto\s+(gastei|recebi)\s+(hoje|essa\s+semana|esta\s+semana|este\s+mês|esse\s+mês)[\s?]*$/i;
+      const greetingRegex = /^(oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)[\s!]*$/i;
+      const affirmationRegex = /^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)[\s!.]*$/i;
 
       const expenseMatch = msgBody.match(expenseRegex);
       const incomeMatch = msgBody.match(incomeRegex);
