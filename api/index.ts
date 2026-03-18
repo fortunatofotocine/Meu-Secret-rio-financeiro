@@ -8,9 +8,9 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// Supabase Client
+// Supabase Client - USE SERVICE ROLE FOR BACKEND OPERATIONS (Bypasses RLS Safely)
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", supabaseKey || "placeholder");
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 });
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.6.0 - Deterministic Queries", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.6.1 - Timezone Fixed", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -44,22 +44,30 @@ function normalizePhone(phone: string) {
 
 // Helper for date ranges (UTC-3 / Brazilian standard)
 function getDateRange(period: string) {
+  // Use Brazilian Time (UTC-3)
   const now = new Date();
-  const start = new Date(now);
+  
+  // Create a date object adjusted to Brazil for range calculation
+  // Offset is -3 hours
+  const brOffset = -3 * 60 * 60 * 1000;
+  const brNow = new Date(now.getTime() + brOffset);
+  
+  const start = new Date(brNow);
   
   if (period === "hoje") {
-    start.setHours(0, 0, 0, 0);
+    start.setUTCHours(0, 0, 0, 0);
   } else if (period.includes("semana")) {
-    // Monday as start of week
-    const day = now.getDay() || 7;
-    if (day !== 1) start.setHours(-24 * (day - 1));
-    start.setHours(0, 0, 0, 0);
+    const day = brNow.getUTCDay() || 7;
+    if (day !== 1) start.setUTCDate(brNow.getUTCDate() - (day - 1));
+    start.setUTCHours(0, 0, 0, 0);
   } else if (period.includes("mês")) {
-    start.setDate(1);
-    start.setHours(0, 0, 0, 0);
+    start.setUTCDate(1);
+    start.setUTCHours(0, 0, 0, 0);
   }
   
-  return start.toISOString();
+  // Convert back to UTC ISO for Supabase comparison
+  const resultDate = new Date(start.getTime() - brOffset);
+  return resultDate.toISOString();
 }
 
 app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
@@ -83,7 +91,6 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       let extractedData: any = {};
       let parserUsed = "none";
 
-      // 1. DETERMINISTIC PARSERS (STRICT REGEX)
       const expenseRegex = /^(?:gastei|paguei)\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:no|na|em|de)\s+(.*)/i;
       const incomeRegex = /^recebi\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:do|da|de|dos|das)\s+(.*)/i;
       const queryRegex = /^quanto\s+(gastei|recebi)\s+(hoje|essa semana|esta semana|este mês|esse mês)$/i;
@@ -94,7 +101,7 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       const incomeMatch = msgBody.match(incomeRegex);
       const queryMatch = msgBody.match(queryRegex);
 
-      // --- USER IDENTIFICATION ---
+      // IDENTIFICATION
       const { data: profile } = await supabase
         .from("profiles")
         .select("id")
@@ -112,7 +119,7 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         if (!profile) {
           finalResponse = "Não encontrei seu cadastro. Por favor, registre seu número no site ZLAI.";
         } else {
-          // DIRECT SUPABASE AGGREGATION
+          // AGGREGATION
           const { data: results, error: queryError } = await supabase
             .from("transactions")
             .select("amount")
@@ -135,10 +142,10 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
                 finalResponse = `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}.`;
               }
             }
-            extractedData = { intent: "query_summary", type, period: periodLabel, total, count };
+            extractedData = { intent: "query_summary", type, period: periodLabel, total, count, startDate };
           } else {
             console.error("[Query Error]", queryError);
-            finalResponse = "Houve um erro ao consultar seus dados. Tente novamente em instantes.";
+            finalResponse = "Houve um erro ao consultar seus dados.";
           }
         }
       } else if (expenseMatch) {
@@ -146,10 +153,7 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         detectedIntent = "create_expense";
         const amount = parseFloat(expenseMatch[1].replace(',', '.'));
         const category = expenseMatch[2].trim();
-        
-        if (!profile) {
-          finalResponse = "Não encontrei seu cadastro. Por favor, registre seu número no site ZLAI.";
-        } else {
+        if (profile) {
           const { error: insError } = await supabase.from("transactions").insert({
             user_id: profile.id, amount, category, description: `WhatsApp: ${msgBody}`, type: 'expense',
             date: new Date().toISOString(), occurred_at: new Date().toISOString(), source: 'whatsapp'
@@ -157,19 +161,16 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
           if (!insError) {
             finalResponse = `Registrei um gasto de R$ ${amount} em ${category}. ✅`;
             extractedData = { intent: "create_expense", amount, category, status: "saved" };
-          } else {
-            finalResponse = "Erro ao salvar. Tente novamente.";
           }
+        } else {
+          finalResponse = "Não encontrei seu cadastro.";
         }
       } else if (incomeMatch) {
         parserUsed = "regex_income";
         detectedIntent = "create_income";
         const amount = parseFloat(incomeMatch[1].replace(',', '.'));
         const sourceName = incomeMatch[2].trim();
-
-        if (!profile) {
-          finalResponse = "Não encontrei seu cadastro. Por favor, registre seu número no site ZLAI.";
-        } else {
+        if (profile) {
           const { error: insError } = await supabase.from("transactions").insert({
             user_id: profile.id, amount, category: sourceName, description: `WhatsApp: ${msgBody}`, type: 'income',
             date: new Date().toISOString(), occurred_at: new Date().toISOString(), source: 'whatsapp'
@@ -177,9 +178,9 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
           if (!insError) {
             finalResponse = `Registrei uma entrada de R$ ${amount} de ${sourceName}. ✅`;
             extractedData = { intent: "create_income", amount, source: sourceName, status: "saved" };
-          } else {
-            finalResponse = "Erro ao salvar. Tente novamente.";
           }
+        } else {
+          finalResponse = "Não encontrei seu cadastro.";
         }
       } else if (greetingRegex.test(msgBody)) {
         parserUsed = "regex_greeting";
@@ -198,7 +199,6 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
           finalResponse = "Não encontrei nenhuma ação pendente.";
         }
       } else {
-        // AI FALLBACK (CONFIRMATION ONLY)
         parserUsed = "ai_fallback";
         try {
           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -220,9 +220,8 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         } catch (e) { console.error("[AI Error]", e); }
       }
 
-      console.log(`[Summary Log] Parser: ${parserUsed}, Intent: ${detectedIntent}, Payload: ${JSON.stringify(extractedData)}, Final: "${finalResponse}"`);
+      console.log(`[Summary Log] Parser: ${parserUsed}, Intent: ${detectedIntent}, Payload: ${JSON.stringify(extractedData)}`);
 
-      // SAVE STATE
       const isPending = finalResponse.includes("Posso registrar");
       await supabase.from("whatsapp_messages").insert({
         whatsapp_id: message.id, sender_number: from, message_text: msgBody,
@@ -230,7 +229,6 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         interpretation: { ...extractedData, parserUsed, detectedIntent }, raw_data: body
       });
 
-      // SEND RESPONSE
       if (phone_number_id && process.env.WHATSAPP_ACCESS_TOKEN) {
         await fetch(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
           method: "POST", headers: { "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, "Content-Type": "application/json" },
