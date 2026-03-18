@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.7.0 - Correct & Soft Delete", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.7.1 - Robust Correction Regex", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -82,8 +82,9 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       const expenseRegex = /^(?:gastei|paguei)\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:no|na|em|de)\s+(.*)/i;
       const incomeRegex = /^recebi\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:do|da|de|dos|das)\s+(.*)/i;
       const queryRegex = /^quanto\s+(gastei|recebi)\s+(hoje|essa\s+semana|esta\s+semana|este\s+mês|esse\s+mês)[\s?]*$/i;
-      const correctRegex = /^(?:corrige|corriga)\s+(?:o\s+)?último\s+(?:gasto|lançamento)?\s+para\s+(\d+(?:[.,]\d+)?)$/i;
-      const deleteRegex = /^(?:apaga|exclui|deleta)\s+(?:o\s+)?último\s+(?:gasto|lançamento)?$|^(?:apaga|exclui|deleta)\s+último$/i;
+      const correctRegex = /^(?:corrige|corriga|corrigir)\s+(?:o\s+)?[uú]ltimo\s+(?:gasto|lançamento)?\s+(?:para\s+)?(\d+(?:[.,]\d+)?)(?:\s+reais)?[\s?]*$/i;
+      const altCorrectRegex = /^(?:errei|o)\s+(?:no\s+)?[uú]ltimo\s+(?:gasto|lançamento)?\s+(?:era|foi)\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?.*$/i;
+      const deleteRegex = /^(?:apaga|exclui|deleta|remover)\s+(?:o\s+)?[uú]ltimo\s+(?:gasto|lançamento)?$|^(?:apaga|exclui|deleta|remover)\s+[uú]ltimo$/i;
       const greetingRegex = /^(oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)[\s!]*$/i;
       const affirmationRegex = /^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)[\s!.]*$/i;
 
@@ -115,7 +116,7 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       const queryMatch = msgBody.match(queryRegex);
       const expenseMatch = msgBody.match(expenseRegex);
       const incomeMatch = msgBody.match(incomeRegex);
-      const correctMatch = msgBody.match(correctRegex);
+      const correctMatch = msgBody.match(correctRegex) || msgBody.match(altCorrectRegex) || msgBody.match(/^corrigir\s+para\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?$/i);
       const deleteMatch = msgBody.match(deleteRegex);
 
       if (queryMatch) {
@@ -205,9 +206,15 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         parserUsed = "ai_fallback";
         try {
           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const prompt = `Classify this input as JSON. Intents: create_expense, create_income, query_summary, correct_last, delete_last, unknown.
-For correct_last, extract newAmount. For delete_last, no extra fields. For query_summary, extract type/period.
-Format: {"intent": "...", "amount": ..., "category": "...", "type": "...", "period": "...", "newAmount": ...}
+          const prompt = `Classify this input as JSON. 
+Intents: create_expense, create_income, query_summary, correct_last, delete_last, greeting, unknown.
+For correct_last, extract newAmount (numeric). 
+For query_summary, extract type (expense|income) and period (today|week|month).
+Examples:
+- "errei o ultimo era 50": {"intent": "correct_last", "newAmount": 50}
+- "apaga o ultimo gasto": {"intent": "delete_last"}
+- "quanto gastei hoje": {"intent": "query_summary", "type": "expense", "period": "today"}
+Format: {"intent": "...", "newAmount": ..., "type": "...", "period": "..."}
 User: "${rawText}"`;
           const result = await model.generateContent(prompt);
           const raw = result.response.text().replace(/```json|```/gi, "").trim();
