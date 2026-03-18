@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.6.3 - Robust Queries & AI Summary", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.6.4 - Query Metrics Logged", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -97,7 +97,7 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
 
         if (queryError) {
           console.error("[Query Error]", queryError);
-          return "Houve um erro ao consultar seus dados.";
+          return { message: "Houve um erro ao consultar seus dados.", count: 0, total: 0, startDate };
         }
 
         const count = results.length;
@@ -105,14 +105,16 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         const totalFmt = total.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
         const periodText = periodLabel.includes("mês") ? "neste mês" : periodLabel.includes("semana") ? "nesta semana" : "hoje";
 
+        let message = "";
         if (count === 0) {
-          return `Você ainda não tem ${type === 'expense' ? 'gastos registrados' : 'receitas registradas'} ${periodText}.`;
+          message = `Você ainda não tem ${type === 'expense' ? 'gastos registrados' : 'receitas registradas'} ${periodText}.`;
+        } else if (periodLabel === "hoje") {
+          message = `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} ${count === 1 ? 'lançamento' : 'lançamentos'}.`;
+        } else {
+          message = `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}.`;
         }
 
-        if (periodLabel === "hoje") {
-          return `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} ${count === 1 ? 'lançamento' : 'lançamentos'}.`;
-        }
-        return `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}.`;
+        return { message, count, total, startDate };
       };
 
       // --- USER IDENTIFICATION ---
@@ -133,8 +135,9 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         const type = queryMatch[1].toLowerCase() === "gastei" ? "expense" : "income";
         const periodLabel = queryMatch[2].toLowerCase();
         if (profile) {
-          finalResponse = await performQueryAggregation(profile.id, type, periodLabel);
-          extractedData = { intent: "query_summary", type, period: periodLabel };
+          const result = await performQueryAggregation(profile.id, type, periodLabel);
+          finalResponse = result.message;
+          extractedData = { intent: "query_summary", type, period: periodLabel, ...result };
         } else {
           finalResponse = "Não encontrei seu cadastro.";
         }
@@ -209,7 +212,9 @@ User: "${rawText}"`;
             if (detectedIntent === "query_summary" && aiJson.type && aiJson.period) {
               const mappedPeriod = aiJson.period === "today" ? "hoje" : aiJson.period === "week" ? "semana" : "mês";
               if (profile) {
-                finalResponse = await performQueryAggregation(profile.id, aiJson.type, mappedPeriod);
+                const result = await performQueryAggregation(profile.id, aiJson.type, mappedPeriod);
+                finalResponse = result.message;
+                extractedData = { ...extractedData, ...result };
               }
             } else if (detectedIntent === "create_expense" && aiJson.amount) {
               finalResponse = `Entendi um gasto de R$ ${aiJson.amount}${aiJson.category ? ` em ${aiJson.category}` : ""}. Posso registrar assim?`;
