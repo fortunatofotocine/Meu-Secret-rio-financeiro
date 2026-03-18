@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.7.1 - Robust Correction Regex", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.7.2 - Dynamic Phone Number", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -260,11 +260,39 @@ User: "${rawText}"`;
         interpretation: { ...extractedData, parserUsed, detectedIntent }, raw_data: body
       });
 
-      if (phone_number_id && process.env.WHATSAPP_ACCESS_TOKEN) {
-        await fetch(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
-          method: "POST", headers: { "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ messaging_product: "whatsapp", to: from, type: "text", text: { body: finalResponse } }),
-        });
+      if (process.env.WHATSAPP_ACCESS_TOKEN) {
+        // WhatsApp ID Logic: Metadata > Env Fallback
+        const received_id = value?.metadata?.phone_number_id;
+        const sending_from_id = received_id || process.env.PHONE_NUMBER_ID;
+
+        if (sending_from_id) {
+          try {
+            const waResponse = await fetch(`https://graph.facebook.com/v18.0/${sending_from_id}/messages`, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                messaging_product: "whatsapp",
+                to: from,
+                type: "text",
+                text: { body: finalResponse }
+              }),
+            });
+
+            const waResult: any = await waResponse.json();
+            console.log(`[WhatsApp API] FromID: ${sending_from_id} (RecvID: ${received_id || 'N/A'}), To: ${from}, Status: ${waResponse.status}`);
+            
+            if (!waResponse.ok) {
+              console.error(`[WhatsApp API Error] Status: ${waResponse.status}, Body:`, JSON.stringify(waResult));
+            }
+          } catch (err) {
+            console.error("[WhatsApp API Network Error]", err);
+          }
+        } else {
+          console.error("[WhatsApp Config Error] No phone_number_id available (metadata or env).");
+        }
       }
     }
   }
