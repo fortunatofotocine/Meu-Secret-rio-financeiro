@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.6.4 - Query Metrics Logged", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.7.0 - Correct & Soft Delete", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -68,7 +68,6 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       const rawText = (message.text?.body || "").trim();
       const phone_number_id = value?.metadata?.phone_number_id;
 
-      // PRE-PROCESS: Strip greetings
       const greetingStripper = /^(?:oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)[\s!,./-]*/i;
       const msgBody = rawText.replace(greetingStripper, "").trim() || rawText;
 
@@ -79,102 +78,110 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       let extractedData: any = {};
       let parserUsed = "none";
 
+      // DETERMINISTIC REGEX
       const expenseRegex = /^(?:gastei|paguei)\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:no|na|em|de)\s+(.*)/i;
       const incomeRegex = /^recebi\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:do|da|de|dos|das)\s+(.*)/i;
       const queryRegex = /^quanto\s+(gastei|recebi)\s+(hoje|essa\s+semana|esta\s+semana|este\s+mês|esse\s+mês)[\s?]*$/i;
+      const correctRegex = /^(?:corrige|corriga)\s+(?:o\s+)?último\s+(?:gasto|lançamento)?\s+para\s+(\d+(?:[.,]\d+)?)$/i;
+      const deleteRegex = /^(?:apaga|exclui|deleta)\s+(?:o\s+)?último\s+(?:gasto|lançamento)?$|^(?:apaga|exclui|deleta)\s+último$/i;
       const greetingRegex = /^(oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)[\s!]*$/i;
       const affirmationRegex = /^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)[\s!.]*$/i;
 
-      // Helper for aggregation
+      // Helpers
       const performQueryAggregation = async (userId: string, type: string, periodLabel: string) => {
         const startDate = getDateRange(periodLabel);
-        const { data: results, error: queryError } = await supabase
-          .from("transactions")
-          .select("amount")
-          .eq("user_id", userId)
-          .eq("type", type)
-          .gte("occurred_at", startDate);
-
-        if (queryError) {
-          console.error("[Query Error]", queryError);
-          return { message: "Houve um erro ao consultar seus dados.", count: 0, total: 0, startDate };
-        }
-
+        const { data: results, error } = await supabase.from("transactions").select("amount")
+          .eq("user_id", userId).eq("type", type).eq("is_deleted", false).gte("occurred_at", startDate);
+        if (error) return { message: "Erro ao consultar dados.", count: 0, total: 0, startDate };
         const count = results.length;
         const total = results.reduce((sum, item) => sum + Number(item.amount), 0);
         const totalFmt = total.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
         const periodText = periodLabel.includes("mês") ? "neste mês" : periodLabel.includes("semana") ? "nesta semana" : "hoje";
+        if (count === 0) return { message: `Você ainda não tem ${type === 'expense' ? 'gastos' : 'receitas'} registrados ${periodText}.`, count: 0, total: 0, startDate };
+        const msg = periodLabel === "hoje" ? `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} lançamentos.` : `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}.`;
+        return { message: msg, count, total, startDate };
+      };
 
-        let message = "";
-        if (count === 0) {
-          message = `Você ainda não tem ${type === 'expense' ? 'gastos registrados' : 'receitas registradas'} ${periodText}.`;
-        } else if (periodLabel === "hoje") {
-          message = `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} ${count === 1 ? 'lançamento' : 'lançamentos'}.`;
-        } else {
-          message = `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}.`;
-        }
-
-        return { message, count, total, startDate };
+      const getLastTransaction = async (userId: string) => {
+        const { data, error } = await supabase.from("transactions").select("*")
+          .eq("user_id", userId).eq("is_deleted", false).order("created_at", { ascending: false }).limit(1).single();
+        return { data, error };
       };
 
       // --- USER IDENTIFICATION ---
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("id")
-        .or(`whatsapp_number.eq.${normalizedFrom},whatsapp_number.eq.55${normalizedFrom}`)
-        .limit(1)
-        .single();
+      const { data: profile } = await supabase.from("profiles").select("id")
+        .or(`whatsapp_number.eq.${normalizedFrom},whatsapp_number.eq.55${normalizedFrom}`).limit(1).single();
 
       const queryMatch = msgBody.match(queryRegex);
       const expenseMatch = msgBody.match(expenseRegex);
       const incomeMatch = msgBody.match(incomeRegex);
+      const correctMatch = msgBody.match(correctRegex);
+      const deleteMatch = msgBody.match(deleteRegex);
 
       if (queryMatch) {
         parserUsed = "regex_query";
         detectedIntent = "query_summary";
         const type = queryMatch[1].toLowerCase() === "gastei" ? "expense" : "income";
-        const periodLabel = queryMatch[2].toLowerCase();
         if (profile) {
-          const result = await performQueryAggregation(profile.id, type, periodLabel);
+          const result = await performQueryAggregation(profile.id, type, queryMatch[2].toLowerCase());
           finalResponse = result.message;
-          extractedData = { intent: "query_summary", type, period: periodLabel, ...result };
-        } else {
-          finalResponse = "Não encontrei seu cadastro.";
-        }
+          extractedData = { intent: "query_summary", type, period: queryMatch[2], ...result };
+        } else finalResponse = "Não encontrei seu cadastro.";
+      } else if (correctMatch) {
+        parserUsed = "regex_correct";
+        detectedIntent = "correct_last";
+        const newAmount = parseFloat(correctMatch[1].replace(',', '.'));
+        if (profile) {
+          const { data: lastTx } = await getLastTransaction(profile.id);
+          if (lastTx) {
+            const { error: updErr } = await supabase.from("transactions").update({ amount: newAmount }).eq("id", lastTx.id);
+            if (!updErr) {
+              finalResponse = `Corrigi o último lançamento para R$ ${newAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. ✅`;
+              extractedData = { intent: "correct_last", oldAmount: lastTx.amount, newAmount, transactionId: lastTx.id };
+            } else finalResponse = "Erro ao corrigir. Tente novamente.";
+          } else finalResponse = "Não encontrei lançamentos para corrigir.";
+        } else finalResponse = "Não encontrei seu cadastro.";
+      } else if (deleteMatch) {
+        parserUsed = "regex_delete";
+        detectedIntent = "delete_last";
+        if (profile) {
+          const { data: lastTx } = await getLastTransaction(profile.id);
+          if (lastTx) {
+            const { error: delErr } = await supabase.from("transactions").update({ is_deleted: true }).eq("id", lastTx.id);
+            if (!delErr) {
+              finalResponse = "Apaguei o último lançamento. ✅";
+              extractedData = { intent: "delete_last", transactionId: lastTx.id, description: lastTx.description };
+            } else finalResponse = "Erro ao apagar. Tente novamente.";
+          } else finalResponse = "Não encontrei lançamentos para apagar.";
+        } else finalResponse = "Não encontrei seu cadastro.";
       } else if (expenseMatch) {
         parserUsed = "regex_expense";
         detectedIntent = "create_expense";
         const amount = parseFloat(expenseMatch[1].replace(',', '.'));
-        const category = expenseMatch[2].trim();
         if (profile) {
           const { error: insError } = await supabase.from("transactions").insert({
-            user_id: profile.id, amount, category, description: `WhatsApp: ${msgBody}`, type: 'expense',
-            date: new Date().toISOString(), occurred_at: new Date().toISOString(), source: 'whatsapp'
+            user_id: profile.id, amount, category: expenseMatch[2].trim(), description: `WhatsApp: ${msgBody}`, type: 'expense',
+            date: new Date().toISOString(), occurred_at: new Date().toISOString(), source: 'whatsapp', is_deleted: false
           });
           if (!insError) {
-            finalResponse = `Registrei um gasto de R$ ${amount} em ${category}. ✅`;
-            extractedData = { intent: "create_expense", amount, category, status: "saved" };
+            finalResponse = `Registrei um gasto de R$ ${amount} em ${expenseMatch[2].trim()}. ✅`;
+            extractedData = { intent: "create_expense", amount, category: expenseMatch[2].trim(), status: "saved" };
           }
-        } else {
-          finalResponse = "Não encontrei seu cadastro.";
-        }
+        } else finalResponse = "Não encontrei seu cadastro.";
       } else if (incomeMatch) {
         parserUsed = "regex_income";
         detectedIntent = "create_income";
         const amount = parseFloat(incomeMatch[1].replace(',', '.'));
-        const sourceName = incomeMatch[2].trim();
         if (profile) {
           const { error: insError } = await supabase.from("transactions").insert({
-            user_id: profile.id, amount, category: sourceName, description: `WhatsApp: ${msgBody}`, type: 'income',
-            date: new Date().toISOString(), occurred_at: new Date().toISOString(), source: 'whatsapp'
+            user_id: profile.id, amount, category: incomeMatch[2].trim(), description: `WhatsApp: ${msgBody}`, type: 'income',
+            date: new Date().toISOString(), occurred_at: new Date().toISOString(), source: 'whatsapp', is_deleted: false
           });
           if (!insError) {
-            finalResponse = `Registrei uma entrada de R$ ${amount} de ${sourceName}. ✅`;
-            extractedData = { intent: "create_income", amount, source: sourceName, status: "saved" };
+            finalResponse = `Registrei uma entrada de R$ ${amount} de ${incomeMatch[2].trim()}. ✅`;
+            extractedData = { intent: "create_income", amount, source: incomeMatch[2].trim(), status: "saved" };
           }
-        } else {
-          finalResponse = "Não encontrei seu cadastro.";
-        }
+        } else finalResponse = "Não encontrei seu cadastro.";
       } else if (greetingRegex.test(msgBody)) {
         parserUsed = "regex_greeting";
         detectedIntent = "greeting";
@@ -185,21 +192,22 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
           .eq("sender_number", from).eq("status", "pending_confirmation").order("created_at", { ascending: false }).limit(1).single();
         if (lastMsg?.interpretation) {
           const interp = lastMsg.interpretation as any;
-          detectedIntent = "confirm";
-          finalResponse = `Feito! Ação "${interp.intent}" confirmada com sucesso. ✅`;
+          if (interp.intent === "correct_last" && interp.newAmount && interp.transactionId) {
+            await supabase.from("transactions").update({ amount: interp.newAmount }).eq("id", interp.transactionId);
+            finalResponse = `Corrigi o último lançamento para R$ ${interp.newAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. ✅`;
+          } else if (interp.intent === "delete_last" && interp.transactionId) {
+            await supabase.from("transactions").update({ is_deleted: true }).eq("id", interp.transactionId);
+            finalResponse = "Apaguei o último lançamento. ✅";
+          } else finalResponse = "Ação confirmada! ✅"; // Fallback for other confirms
           await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("sender_number", from).eq("status", "pending_confirmation");
-        } else {
-          finalResponse = "Não encontrei nenhuma ação pendente.";
-        }
+        } else finalResponse = "Não encontrei nenhuma ação pendente.";
       } else {
-        // AI FALLBACK (Now handles query_summary too)
         parserUsed = "ai_fallback";
         try {
           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const prompt = `Classify this input as JSON. 
-Intents: create_expense, create_income, query_summary, greeting, unknown. 
-For query_summary, extract type (expense|income) and period (today|week|month).
-Output format: {"intent": "...", "amount": ..., "category": "...", "type": "...", "period": "..."}
+          const prompt = `Classify this input as JSON. Intents: create_expense, create_income, query_summary, correct_last, delete_last, unknown.
+For correct_last, extract newAmount. For delete_last, no extra fields. For query_summary, extract type/period.
+Format: {"intent": "...", "amount": ..., "category": "...", "type": "...", "period": "...", "newAmount": ...}
 User: "${rawText}"`;
           const result = await model.generateContent(prompt);
           const raw = result.response.text().replace(/```json|```/gi, "").trim();
@@ -209,27 +217,36 @@ User: "${rawText}"`;
             const aiJson = JSON.parse(raw.substring(start, end + 1));
             detectedIntent = aiJson.intent;
             extractedData = aiJson;
-            if (detectedIntent === "query_summary" && aiJson.type && aiJson.period) {
-              const mappedPeriod = aiJson.period === "today" ? "hoje" : aiJson.period === "week" ? "semana" : "mês";
+            if (detectedIntent === "query_summary" && aiJson.type && aiJson.period && profile) {
+              const result = await performQueryAggregation(profile.id, aiJson.type, aiJson.period === "today" ? "hoje" : aiJson.period === "week" ? "semana" : "mês");
+              finalResponse = result.message;
+              extractedData = { ...extractedData, ...result };
+            } else if (detectedIntent === "correct_last") {
               if (profile) {
-                const result = await performQueryAggregation(profile.id, aiJson.type, mappedPeriod);
-                finalResponse = result.message;
-                extractedData = { ...extractedData, ...result };
+                const { data: lastTx } = await getLastTransaction(profile.id);
+                if (lastTx) {
+                  finalResponse = `Entendi que você quer corrigir o último lançamento de R$ ${lastTx.amount} (${lastTx.description.split(': ')[1] || lastTx.category}) para R$ ${aiJson.newAmount}. Confirma?`;
+                  extractedData = { ...extractedData, transactionId: lastTx.id, oldAmount: lastTx.amount };
+                } else finalResponse = "Não encontrei lançamentos para corrigir.";
               }
-            } else if (detectedIntent === "create_expense" && aiJson.amount) {
-              finalResponse = `Entendi um gasto de R$ ${aiJson.amount}${aiJson.category ? ` em ${aiJson.category}` : ""}. Posso registrar assim?`;
-            } else if (detectedIntent === "create_income" && aiJson.amount) {
-              finalResponse = `Entendi uma entrada de R$ ${aiJson.amount}. Posso registrar assim?`;
-            } else if (detectedIntent === "greeting") {
-              finalResponse = "Olá! Como posso te ajudar hoje?";
+            } else if (detectedIntent === "delete_last") {
+              if (profile) {
+                const { data: lastTx } = await getLastTransaction(profile.id);
+                if (lastTx) {
+                  finalResponse = `Entendi que você quer apagar o último lançamento de R$ ${lastTx.amount} em ${lastTx.category}. Confirma?`;
+                  extractedData = { ...extractedData, transactionId: lastTx.id };
+                } else finalResponse = "Não encontrei lançamentos para apagar.";
+              }
+            } else if ((detectedIntent === "create_expense" || detectedIntent === "create_income") && aiJson.amount) {
+              finalResponse = `Entendi um(a) ${detectedIntent === "create_expense" ? 'gasto' : 'entrada'} de R$ ${aiJson.amount}. Posso registrar?`;
             }
           }
         } catch (e) { console.error("[AI Error]", e); }
       }
 
-      console.log(`[Summary Log] Parser: ${parserUsed}, Intent: ${detectedIntent}, Payload: ${JSON.stringify(extractedData)}`);
+      console.log(`[Summary Log] Intent: ${detectedIntent}, Parser: ${parserUsed}, Payload: ${JSON.stringify(extractedData)}`);
 
-      const isPending = finalResponse.includes("Posso registrar");
+      const isPending = finalResponse.includes("Confirma?") || finalResponse.includes("Posso registrar?");
       await supabase.from("whatsapp_messages").insert({
         whatsapp_id: message.id, sender_number: from, message_text: rawText,
         status: isPending ? "pending_confirmation" : "processed",
