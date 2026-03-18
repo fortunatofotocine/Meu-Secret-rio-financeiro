@@ -8,21 +8,15 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// Supabase Client - USE SERVICE ROLE FOR BACKEND OPERATIONS (Bypasses RLS Safely)
+// Supabase Client - USE SERVICE ROLE FOR BACKEND OPERATIONS
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", supabaseKey || "placeholder");
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// Diagnostic Log for Routing
-app.use((req, res, next) => {
-  console.log(`[API Debug] ${req.method} ${req.url}`);
-  next();
-});
-
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.6.2 - Regex Punctuation Fixed", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.6.3 - Robust Queries & AI Summary", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -33,7 +27,6 @@ app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
   return res.sendStatus(403);
 });
 
-// Helper for phone normalization
 function normalizePhone(phone: string) {
   let cleaned = phone.replace(/\D/g, "");
   if (cleaned.startsWith("55") && cleaned.length > 10) {
@@ -42,16 +35,10 @@ function normalizePhone(phone: string) {
   return cleaned;
 }
 
-// Helper for date ranges (UTC-3 / Brazilian standard)
 function getDateRange(period: string) {
-  // Use Brazilian Time (UTC-3)
   const now = new Date();
-  
-  // Create a date object adjusted to Brazil for range calculation
-  // Offset is -3 hours
   const brOffset = -3 * 60 * 60 * 1000;
   const brNow = new Date(now.getTime() + brOffset);
-  
   const start = new Date(brNow);
   
   if (period === "hoje") {
@@ -65,15 +52,12 @@ function getDateRange(period: string) {
     start.setUTCHours(0, 0, 0, 0);
   }
   
-  // Convert back to UTC ISO for Supabase comparison
   const resultDate = new Date(start.getTime() - brOffset);
   return resultDate.toISOString();
 }
 
 app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
   const body = req.body;
-  console.log("--- WhatsApp Webhook Received ---");
-  
   if (body.object === 'whatsapp_business_account') {
     const value = body.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
@@ -81,10 +65,14 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
     if (message && message.type === 'text') {
       const from = message.from;
       const normalizedFrom = normalizePhone(from);
-      const msgBody = (message.text?.body || "").trim();
+      const rawText = (message.text?.body || "").trim();
       const phone_number_id = value?.metadata?.phone_number_id;
 
-      console.log(`[Input] From: ${from} (Norm: ${normalizedFrom}), Text: "${msgBody}"`);
+      // PRE-PROCESS: Strip greetings
+      const greetingStripper = /^(?:oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)[\s!,./-]*/i;
+      const msgBody = rawText.replace(greetingStripper, "").trim() || rawText;
+
+      console.log(`[Input] From: ${from}, Text: "${rawText}" (Actionable: "${msgBody}")`);
 
       let finalResponse = "Pode me explicar melhor? Ex: 'gastei 30 no mercado'";
       let detectedIntent = "unknown";
@@ -97,11 +85,37 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       const greetingRegex = /^(oi|olá|ola|bom dia|boa tarde|boa noite|opa|hey)[\s!]*$/i;
       const affirmationRegex = /^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)[\s!.]*$/i;
 
-      const expenseMatch = msgBody.match(expenseRegex);
-      const incomeMatch = msgBody.match(incomeRegex);
-      const queryMatch = msgBody.match(queryRegex);
+      // Helper for aggregation
+      const performQueryAggregation = async (userId: string, type: string, periodLabel: string) => {
+        const startDate = getDateRange(periodLabel);
+        const { data: results, error: queryError } = await supabase
+          .from("transactions")
+          .select("amount")
+          .eq("user_id", userId)
+          .eq("type", type)
+          .gte("occurred_at", startDate);
 
-      // IDENTIFICATION
+        if (queryError) {
+          console.error("[Query Error]", queryError);
+          return "Houve um erro ao consultar seus dados.";
+        }
+
+        const count = results.length;
+        const total = results.reduce((sum, item) => sum + Number(item.amount), 0);
+        const totalFmt = total.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        const periodText = periodLabel.includes("mês") ? "neste mês" : periodLabel.includes("semana") ? "nesta semana" : "hoje";
+
+        if (count === 0) {
+          return `Você ainda não tem ${type === 'expense' ? 'gastos registrados' : 'receitas registradas'} ${periodText}.`;
+        }
+
+        if (periodLabel === "hoje") {
+          return `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} ${count === 1 ? 'lançamento' : 'lançamentos'}.`;
+        }
+        return `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}.`;
+      };
+
+      // --- USER IDENTIFICATION ---
       const { data: profile } = await supabase
         .from("profiles")
         .select("id")
@@ -109,44 +123,20 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         .limit(1)
         .single();
 
+      const queryMatch = msgBody.match(queryRegex);
+      const expenseMatch = msgBody.match(expenseRegex);
+      const incomeMatch = msgBody.match(incomeRegex);
+
       if (queryMatch) {
         parserUsed = "regex_query";
         detectedIntent = "query_summary";
         const type = queryMatch[1].toLowerCase() === "gastei" ? "expense" : "income";
         const periodLabel = queryMatch[2].toLowerCase();
-        const startDate = getDateRange(periodLabel);
-
-        if (!profile) {
-          finalResponse = "Não encontrei seu cadastro. Por favor, registre seu número no site ZLAI.";
+        if (profile) {
+          finalResponse = await performQueryAggregation(profile.id, type, periodLabel);
+          extractedData = { intent: "query_summary", type, period: periodLabel };
         } else {
-          // AGGREGATION
-          const { data: results, error: queryError } = await supabase
-            .from("transactions")
-            .select("amount")
-            .eq("user_id", profile.id)
-            .eq("type", type)
-            .gte("occurred_at", startDate);
-
-          if (!queryError) {
-            const count = results.length;
-            const total = results.reduce((sum, item) => sum + Number(item.amount), 0);
-            const periodText = periodLabel.includes("mês") ? "neste mês" : periodLabel.includes("semana") ? "nesta semana" : "hoje";
-
-            if (count === 0) {
-              finalResponse = `Você ainda não tem ${type === 'expense' ? 'gastos registrados' : 'receitas registradas'} ${periodText}.`;
-            } else {
-              const totalFmt = total.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-              if (periodLabel === "hoje") {
-                finalResponse = `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} ${count === 1 ? 'lançamento' : 'lançamentos'}.`;
-              } else {
-                finalResponse = `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}.`;
-              }
-            }
-            extractedData = { intent: "query_summary", type, period: periodLabel, total, count, startDate };
-          } else {
-            console.error("[Query Error]", queryError);
-            finalResponse = "Houve um erro ao consultar seus dados.";
-          }
+          finalResponse = "Não encontrei seu cadastro.";
         }
       } else if (expenseMatch) {
         parserUsed = "regex_expense";
@@ -186,7 +176,7 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         parserUsed = "regex_greeting";
         detectedIntent = "greeting";
         finalResponse = "Olá! Posso te ajudar a registrar gastos, consultar seus gastos ou organizar compromissos.";
-      } else if (affirmationRegex.test(msgBody)) {
+      } else if (affirmationRegex.test(rawText)) {
         parserUsed = "regex_affirmation";
         const { data: lastMsg } = await supabase.from("whatsapp_messages").select("interpretation")
           .eq("sender_number", from).eq("status", "pending_confirmation").order("created_at", { ascending: false }).limit(1).single();
@@ -199,10 +189,15 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
           finalResponse = "Não encontrei nenhuma ação pendente.";
         }
       } else {
+        // AI FALLBACK (Now handles query_summary too)
         parserUsed = "ai_fallback";
         try {
           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-          const prompt = `Classify this input as JSON. Intents: create_expense, create_income, query_summary, unknown. User: "${msgBody}"`;
+          const prompt = `Classify this input as JSON. 
+Intents: create_expense, create_income, query_summary, greeting, unknown. 
+For query_summary, extract type (expense|income) and period (today|week|month).
+Output format: {"intent": "...", "amount": ..., "category": "...", "type": "...", "period": "..."}
+User: "${rawText}"`;
           const result = await model.generateContent(prompt);
           const raw = result.response.text().replace(/```json|```/gi, "").trim();
           const start = raw.indexOf("{");
@@ -211,10 +206,17 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
             const aiJson = JSON.parse(raw.substring(start, end + 1));
             detectedIntent = aiJson.intent;
             extractedData = aiJson;
-            if (detectedIntent === "create_expense" && aiJson.amount) {
+            if (detectedIntent === "query_summary" && aiJson.type && aiJson.period) {
+              const mappedPeriod = aiJson.period === "today" ? "hoje" : aiJson.period === "week" ? "semana" : "mês";
+              if (profile) {
+                finalResponse = await performQueryAggregation(profile.id, aiJson.type, mappedPeriod);
+              }
+            } else if (detectedIntent === "create_expense" && aiJson.amount) {
               finalResponse = `Entendi um gasto de R$ ${aiJson.amount}${aiJson.category ? ` em ${aiJson.category}` : ""}. Posso registrar assim?`;
             } else if (detectedIntent === "create_income" && aiJson.amount) {
               finalResponse = `Entendi uma entrada de R$ ${aiJson.amount}. Posso registrar assim?`;
+            } else if (detectedIntent === "greeting") {
+              finalResponse = "Olá! Como posso te ajudar hoje?";
             }
           }
         } catch (e) { console.error("[AI Error]", e); }
@@ -224,7 +226,7 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
 
       const isPending = finalResponse.includes("Posso registrar");
       await supabase.from("whatsapp_messages").insert({
-        whatsapp_id: message.id, sender_number: from, message_text: msgBody,
+        whatsapp_id: message.id, sender_number: from, message_text: rawText,
         status: isPending ? "pending_confirmation" : "processed",
         interpretation: { ...extractedData, parserUsed, detectedIntent }, raw_data: body
       });
