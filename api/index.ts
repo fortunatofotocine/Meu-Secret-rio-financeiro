@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.7.2 - Dynamic Phone Number", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.7.3 - Raw Webhook Logging", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -58,6 +58,21 @@ function getDateRange(period: string) {
 
 app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
   const body = req.body;
+  
+  // RAW DEBUG LOG: Record every hit to the endpoint in the DB
+  try {
+    const rawSender = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from || "system_debug";
+    await supabase.from("whatsapp_messages").insert({
+      whatsapp_id: `raw_${Date.now()}`,
+      sender_number: rawSender,
+      message_text: `RAW_DEBUG: ${JSON.stringify(body).substring(0, 100)}...`,
+      status: "debug",
+      raw_data: body
+    });
+  } catch (e) {
+    console.error("[Raw Log Error]", e);
+  }
+
   if (body.object === 'whatsapp_business_account') {
     const value = body.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
