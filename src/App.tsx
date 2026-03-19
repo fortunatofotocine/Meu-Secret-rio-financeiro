@@ -9,6 +9,7 @@ import Mensagens from './pages/Mensagens';
 import Metas from './pages/Metas';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 import ProtectedRoute from './components/ProtectedRoute';
 
 export const InstallContext = createContext<{
@@ -53,6 +54,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
 
         <Route path="/" element={
           <ProtectedRoute>
