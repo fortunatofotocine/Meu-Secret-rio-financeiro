@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.8.0 - Privacy Policy & Debug Fix", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.8.2 - Robust ID & Privacy Page", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -125,8 +125,10 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       };
 
       // --- USER IDENTIFICATION ---
+      // Robust identification: match by the last 8-10 digits to ignore 55 and '9' prefix variations
+      const lastDigits = normalizedFrom.slice(-8); 
       const { data: profile } = await supabase.from("profiles").select("id")
-        .or(`whatsapp_number.eq.${normalizedFrom},whatsapp_number.eq.55${normalizedFrom}`).limit(1).single();
+        .ilike("whatsapp_number", `%${lastDigits}`).limit(1).single();
 
       const queryMatch = msgBody.match(queryRegex);
       const expenseMatch = msgBody.match(expenseRegex);
