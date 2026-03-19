@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.8.2 - Robust ID & Privacy Page", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.8.3 - Fixed ID Source", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -278,9 +278,9 @@ User: "${rawText}"`;
       });
 
       if (process.env.WHATSAPP_ACCESS_TOKEN) {
-        // WhatsApp ID Logic: Metadata > Env Fallback
+        // WhatsApp ID Logic: Env Fallback is Primary to avoid Meta Test ID: 123456123
         const received_id = value?.metadata?.phone_number_id;
-        const sending_from_id = received_id || process.env.PHONE_NUMBER_ID;
+        const sending_from_id = process.env.PHONE_NUMBER_ID || received_id;
 
         if (sending_from_id) {
           try {
