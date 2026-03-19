@@ -6,6 +6,10 @@
             "destination": "/api"
         },
         {
+            "source": "/privacy",
+            "destination": "/privacy.html"
+        },
+        {
             "source": "/((?!api/|assets/|favicon|manifest|zlai-logo|.*\\..*).*)",
             "destination": "/index.html"
         }
