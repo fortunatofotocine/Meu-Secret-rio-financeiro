@@ -110,19 +110,22 @@ async function downloadWAMedia(mediaId: string): Promise<{ buffer: Buffer, mime:
 }
 
 async function transcribeAudio(buffer: Buffer, mime: string): Promise<string | null> {
-  const modelName = "gemini-1.5-pro"; // User requested recent model, not flash
-  console.log(`[Transcription] Using model: ${modelName}`);
+  const modelName = "gemini-1.5-pro"; 
+  const cleanMime = mime.split(";")[0].trim(); // Crucial: Gemini rejects "audio/ogg; codecs=opus"
+  console.log(`[Transcription] Model: ${modelName}, CleanMime: ${cleanMime}`);
+  
   try {
     const model = genAI.getGenerativeModel({ model: modelName });
     const res = await model.generateContent([
-      { inlineData: { data: buffer.toString("base64"), mimeType: mime } },
-      "Transcreva exatamente o que foi dito neste áudio em português. Se não houver fala clara, retorne apenas [silêncio]."
+      { inlineData: { data: buffer.toString("base64"), mimeType: cleanMime } },
+      "Transcreva exatamente o que foi dito neste áudio em português brasileiro. Se não houver fala clara, retorne apenas [silêncio]."
     ]);
     const text = res.response.text().trim();
     if (text === "[silêncio]") return null;
     return text;
-  } catch (e) {
-    console.error("[Transcription Error]", e);
+  } catch (e: any) {
+    console.error("[Transcription Error Detailed]", e.message || e);
+    // Return explicit error for logging in handleIncomingMessage if possible
     return null;
   }
 }
@@ -368,7 +371,7 @@ async function sendWA(to: string, text: string) {
     return;
   }
   try {
-    const waResponse = await fetch(`https://graph.facebook.com/v18.0/${sending_from_id}/messages`, {
+    const waResponse = await fetch(`https://graph.facebook.com/v21.0/${sending_from_id}/messages`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
