@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.8.3 - Fixed ID Source", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.8.4 - Webhook Debug Isolation", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -130,11 +130,14 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
       const { data: profile } = await supabase.from("profiles").select("id")
         .ilike("whatsapp_number", `%${lastDigits}`).limit(1).single();
 
+      // --- ISOLATION MODE (v1.8.4) ---
+      // Distable all IA and logic for debugging
+      finalResponse = "Teste ZLAI funcionando";
+      detectedIntent = "test_isolation";
+      parserUsed = "debug_isolation";
+      
+      /*
       const queryMatch = msgBody.match(queryRegex);
-      const expenseMatch = msgBody.match(expenseRegex);
-      const incomeMatch = msgBody.match(incomeRegex);
-      const correctMatch = msgBody.match(correctRegex) || msgBody.match(altCorrectRegex) || msgBody.match(/^corrigir\s+para\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?$/i);
-      const deleteMatch = msgBody.match(deleteRegex);
 
       if (queryMatch) {
         parserUsed = "regex_query";
@@ -265,6 +268,7 @@ User: "${rawText}"`;
               finalResponse = `Entendi um(a) ${detectedIntent === "create_expense" ? 'gasto' : 'entrada'} de R$ ${aiJson.amount}. Posso registrar?`;
             }
           }
+      */
         } catch (e) { console.error("[AI Error]", e); }
       }
 
@@ -284,6 +288,7 @@ User: "${rawText}"`;
 
         if (sending_from_id) {
           try {
+            console.log(`[WhatsApp API Trace] ID: ${sending_from_id}, TokenExists: ${!!process.env.WHATSAPP_ACCESS_TOKEN}`);
             const waResponse = await fetch(`https://graph.facebook.com/v18.0/${sending_from_id}/messages`, {
               method: "POST",
               headers: {
@@ -297,18 +302,13 @@ User: "${rawText}"`;
                 text: { body: finalResponse }
               }),
             });
-
             const waResult: any = await waResponse.json();
-            console.log(`[WhatsApp API] FromID: ${sending_from_id} (RecvID: ${received_id || 'N/A'}), To: ${from}, Status: ${waResponse.status}`);
-            
-            if (!waResponse.ok) {
-              console.error(`[WhatsApp API Error] Status: ${waResponse.status}, Body:`, JSON.stringify(waResult));
-            }
+            console.log(`[WhatsApp API Response] Status: ${waResponse.status}, Body: ${JSON.stringify(waResult)}`);
           } catch (err) {
             console.error("[WhatsApp API Network Error]", err);
           }
         } else {
-          console.error("[WhatsApp Config Error] No phone_number_id available (metadata or env).");
+          console.error("[WhatsApp Config Error] No PHONE_NUMBER_ID available.");
         }
       }
     }
