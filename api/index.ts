@@ -359,11 +359,6 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
   }
   res.status(200).send('OK');
 });
-      }
-    }
-  }
-  res.status(200).send('OK');
-});
 
 // Helper for sending WhatsApp messages with verbose logging
 async function sendWA(to: string, text: string) {
