@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.9.1 - Phase 1 + Affirmation", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "2.0.0 - Phase 2 Agenda", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -54,6 +54,39 @@ function getDateRange(period: string) {
   
   const resultDate = new Date(start.getTime() - brOffset);
   return resultDate.toISOString();
+}
+
+function parseDateTimeBR(dateStr: string, timeStr: string) {
+  const now = new Date();
+  const brOffset = -3 * 60 * 60 * 1000;
+  const brNow = new Date(now.getTime() + brOffset);
+  const target = new Date(brNow);
+
+  // Date Logic
+  const lowDate = dateStr.toLowerCase();
+  if (lowDate.includes("amanhã") || lowDate.includes("amanha")) {
+    target.setUTCDate(brNow.getUTCDate() + 1);
+  } else if (!lowDate.includes("hoje")) {
+    const days: { [key: string]: number } = { "domingo": 0, "segunda": 1, "terça": 2, "quarta": 3, "quinta": 4, "sexta": 5, "sábado": 6, "sabado": 6 };
+    for (const d in days) {
+      if (lowDate.includes(d)) {
+        let diff = days[d] - brNow.getUTCDay();
+        if (diff <= 0) diff += 7;
+        target.setUTCDate(brNow.getUTCDate() + diff);
+        break;
+      }
+    }
+  }
+
+  // Time Logic: "18", "18h", "18:30", "18:30h"
+  const timeMatch = timeStr.match(/(\d{1,2})(?::(\d{2}))?/);
+  if (timeMatch) {
+    const hours = parseInt(timeMatch[1]);
+    const mins = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+    target.setUTCHours(hours, mins, 0, 0);
+  }
+
+  return new Date(target.getTime() - brOffset);
 }
 
 app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
@@ -147,6 +180,43 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
               else if (period === "hoje") finalResponse = `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} lançamentos.`;
               else finalResponse = `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}${filterText}.`;
             } else finalResponse = "Erro ao consultar seus dados.";
+          } else if (lowText.match(/^(?:agende|marque|crie|agenda)\s+(?:compromisso\s+)?(?:para\s+)?(hoje|amanhã|segunda|terça|quarta|quinta|sexta|sábado|domingo|sabado)\s+às\s+(\d{1,2}(?::\d{2})?\s*(?:h|horas)?)\s+(.*)/i)) {
+            parserUsed = "regex";
+            detectedIntent = "create_event";
+            const m = lowText.match(/^(?:agende|marque|crie|agenda)\s+(?:compromisso\s+)?(?:para\s+)?(hoje|amanhã|segunda|terça|quarta|quinta|sexta|sábado|domingo|sabado)\s+às\s+(\d{1,2}(?::\d{2})?\s*(?:h|horas)?)\s+(.*)/i);
+            if (m) {
+              const startAt = parseDateTimeBR(m[1], m[2]);
+              const title = m[3].trim();
+              const { error } = await supabase.from("events").insert({
+                user_id: profile.id, title, start_time: startAt.toISOString(), source: 'whatsapp'
+              });
+              if (!error) finalResponse = `Compromisso criado para ${m[1]} às ${startAt.getUTCHours()}:${startAt.getUTCMinutes().toString().padStart(2, '0')}: ${title}. ✅`;
+              else finalResponse = "Erro ao criar compromisso.";
+            }
+          } else if (lowText.match(/(?:quais\s+meus\s+compromissos\s+de\s+|tenho\s+compromisso\s+|agenda\s+de\s+)(hoje|amanhã)/i)) {
+            parserUsed = "regex";
+            detectedIntent = "query_events";
+            const m = lowText.match(/(?:quais\s+meus\s+compromissos\s+de\s+|tenho\s+compromisso\s+|agenda\s+de\s+)(hoje|amanhã)/i);
+            const period = m?.[1] || "hoje";
+            const dayStart = getDateRange(period);
+            const nextDay = new Date(new Date(dayStart).getTime() + 24 * 60 * 60 * 1000).toISOString();
+            
+            const { data: events, error } = await supabase.from("events")
+              .select("title, start_time").eq("user_id", profile.id)
+              .gte("start_time", dayStart).lt("start_time", nextDay).order("start_time");
+
+            if (!error) {
+              if (events.length === 0) finalResponse = `Você não tem compromissos para ${period}.`;
+              else {
+                const list = events.map(e => {
+                  const d = new Date(e.start_time);
+                  const h = d.getUTCHours().toString().padStart(2, '0');
+                  const min = d.getUTCMinutes().toString().padStart(2, '0');
+                  return `${e.title} às ${h}:${min}`;
+                }).join(", ");
+                finalResponse = `${period === 'hoje' ? 'Hoje' : 'Amanhã'} você tem ${events.length} compromisso(s): ${list}.`;
+              }
+            } else finalResponse = "Erro ao carregar sua agenda.";
           } else if (/^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)[\s!.]*$/i.test(rawText)) {
             parserUsed = "affirmation";
             const { data: lastMsg } = await supabase.from("whatsapp_messages")
@@ -155,7 +225,7 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
 
             if (lastMsg?.interpretation) {
               const interp = lastMsg.interpretation as any;
-              if (interp.amount && interp.intent) {
+              if (interp.intent === "create_expense" || interp.intent === "create_income") {
                 const type = interp.intent === "create_expense" ? "expense" : "income";
                 const { error } = await supabase.from("transactions").insert({
                   user_id: profile.id, type, amount: interp.amount, category: interp.category || "Geral",
@@ -164,19 +234,30 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
                 if (!error) {
                   finalResponse = "Confirmado e registrado! ✅";
                   await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("id", lastMsg.id);
-                } else finalResponse = "Erro ao registrar confirmação.";
+                } else finalResponse = "Erro ao registrar.";
+              } else if (interp.intent === "create_event") {
+                const { error } = await supabase.from("events").insert({
+                  user_id: profile.id, title: interp.title, start_time: interp.start_time, source: 'whatsapp'
+                });
+                if (!error) {
+                  finalResponse = "Compromisso confirmado e agendado! ✅";
+                  await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("id", lastMsg.id);
+                } else finalResponse = "Erro ao agendar compromisso.";
               } else finalResponse = "Não entendi o que era para confirmar.";
-            } else finalResponse = "Não encontrei nenhuma ação pendente para confirmar.";
+            } else finalResponse = "Não encontrei nenhuma ação pendente.";
           } else {
             // IA FALLBACK
             parserUsed = "ai_fallback";
             try {
               const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-              const prompt = `Classify this financial input as JSON. 
-Intents: create_expense, create_income, unknown.
-Extract amount (numeric), category (string), and is_fixed (boolean).
+              const prompt = `Classify this input as JSON. 
+Intents: create_expense, create_income, create_event, unknown.
+- For financial: Extract amount (numeric), category (string), is_fixed (boolean).
+- For agenda: Extract title (string), date (YYYY-MM-DD), time (HH:mm). 
+Current Time: ${new Date().toISOString()} (UTC-3 is -3h).
+Ex: "marque dentista amanha 14h": {"intent": "create_event", "title": "dentista", "start_time": "2024-03-21T14:00:00.000Z"}
 User: "${rawText}"
-Format: {"intent": "...", "amount": ..., "category": "...", "is_fixed": ...}`;
+Format: {"intent": "...", ...fields...}`;
               const resIA = await model.generateContent(prompt);
               const rawIA = resIA.response.text().replace(/```json|```/gi, "").trim();
               const start = rawIA.indexOf("{");
@@ -187,6 +268,13 @@ Format: {"intent": "...", "amount": ..., "category": "...", "is_fixed": ...}`;
                 if ((detectedIntent === "create_expense" || detectedIntent === "create_income") && aiJson.amount) {
                   finalResponse = `Entendi um(a) ${detectedIntent === "create_expense" ? 'gasto' : 'entrada'} ${aiJson.is_fixed ? 'fixo(a) ' : ''}de R$ ${aiJson.amount} em ${aiJson.category}. Posso registrar?`;
                   extractedData = aiJson;
+                } else if (detectedIntent === "create_event") {
+                  if (!aiJson.title) finalResponse = "Qual o nome do compromisso?";
+                  else if (!aiJson.start_time) finalResponse = "Qual horário desse compromisso?";
+                  else {
+                    finalResponse = `Entendi um compromisso: ${aiJson.title} para ${aiJson.start_time.split('T')[0]} às ${aiJson.start_time.split('T')[1].substring(0,5)}. Posso agendar?`;
+                    extractedData = aiJson;
+                  }
                 }
               }
             } catch (e) { console.error("[AI Error]", e); }
