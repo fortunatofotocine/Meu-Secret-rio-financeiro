@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.9.0 - Phase 1 Financial Assistant", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.9.1 - Phase 1 + Affirmation", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -147,6 +147,26 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
               else if (period === "hoje") finalResponse = `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} lançamentos.`;
               else finalResponse = `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}${filterText}.`;
             } else finalResponse = "Erro ao consultar seus dados.";
+          } else if (/^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)[\s!.]*$/i.test(rawText)) {
+            parserUsed = "affirmation";
+            const { data: lastMsg } = await supabase.from("whatsapp_messages")
+              .select("interpretation, id").eq("user_id", profile.id).eq("status", "pending_confirmation")
+              .order("created_at", { ascending: false }).limit(1).single();
+
+            if (lastMsg?.interpretation) {
+              const interp = lastMsg.interpretation as any;
+              if (interp.amount && interp.intent) {
+                const type = interp.intent === "create_expense" ? "expense" : "income";
+                const { error } = await supabase.from("transactions").insert({
+                  user_id: profile.id, type, amount: interp.amount, category: interp.category || "Geral",
+                  description: `WhatsApp Confirmed: ${interp.category}`, is_fixed: interp.is_fixed || false, source: 'whatsapp'
+                });
+                if (!error) {
+                  finalResponse = "Confirmado e registrado! ✅";
+                  await supabase.from("whatsapp_messages").update({ status: "processed" }).eq("id", lastMsg.id);
+                } else finalResponse = "Erro ao registrar confirmação.";
+              } else finalResponse = "Não entendi o que era para confirmar.";
+            } else finalResponse = "Não encontrei nenhuma ação pendente para confirmar.";
           } else {
             // IA FALLBACK
             parserUsed = "ai_fallback";
