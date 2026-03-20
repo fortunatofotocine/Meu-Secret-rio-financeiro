@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "1.8.4 - Webhook Debug Isolation", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "1.9.0 - Phase 1 Financial Assistant", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -66,60 +66,156 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
         
         if (message && message.type === 'text') {
           const from = message.from;
+          const normalizedFrom = normalizePhone(from);
           const rawText = (message.text?.body || "").trim();
           
-          console.log(`[Isolation v1.8.4] From: ${from}, Text: "${rawText}"`);
+          console.log(`[Phase 1] From: ${from}, Text: "${rawText}"`);
 
-          // 1. Fixed Response
-          const finalResponse = "Teste ZLAI funcionando";
+          // --- USER IDENTIFICATION ---
+          const lastDigits = normalizedFrom.slice(-8); 
+          const { data: profile } = await supabase.from("profiles").select("id, full_name")
+            .ilike("whatsapp_number", `%${lastDigits}`).limit(1).single();
 
-          // 2. Save to DB for history
+          if (!profile) {
+            await sendWA(from, "Não encontrei seu cadastro. Por favor, registre seu número no site ZLAI.");
+            continue;
+          }
+
+          let finalResponse = "Pode me explicar melhor? Ex: 'gastei 30 no mercado'";
+          let detectedIntent = "unknown";
+          let parserUsed = "none";
+          let extractedData: any = {};
+
+          const lowText = rawText.toLowerCase();
+          const isFixed = lowText.includes("fixo");
+          const cleanText = rawText.replace(/fixo|variável|variavel/gi, "").trim();
+
+          // DETERMINISTIC REGEX
+          const expenseRegex = /^(?:gastei|paguei)\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:no|na|em|de)\s+(.*)/i;
+          const incomeRegex = /^recebi\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:do|da|de|dos|das)\s+(.*)/i;
+          const summaryRegex = /^quanto\s+(gastei|recebi)\s+(?:de\s+(fixo|variável)\s+)?(hoje|essa\s+semana|esta\s+semana|este\s+mês|esse\s+mês)[\s?]*$/i;
+
+          const expenseMatch = cleanText.match(expenseRegex);
+          const incomeMatch = cleanText.match(incomeRegex);
+          const summaryMatch = cleanText.match(summaryRegex);
+
+          if (expenseMatch) {
+            parserUsed = "regex";
+            detectedIntent = "create_expense";
+            const amount = parseFloat(expenseMatch[1].replace(',', '.'));
+            const category = expenseMatch[2].trim();
+            const { error } = await supabase.from("transactions").insert({
+              user_id: profile.id, type: 'expense', amount, category, 
+              description: `WhatsApp: ${cleanText}`, is_fixed: isFixed, source: 'whatsapp'
+            });
+            if (!error) finalResponse = `Registrei um gasto ${isFixed ? 'fixo ' : ''}de R$ ${amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em ${category}. ✅`;
+            else finalResponse = "Erro ao registrar. Tente novamente.";
+          } else if (incomeMatch) {
+            parserUsed = "regex";
+            detectedIntent = "create_income";
+            const amount = parseFloat(incomeMatch[1].replace(',', '.'));
+            const sourceName = incomeMatch[2].trim();
+            const { error } = await supabase.from("transactions").insert({
+              user_id: profile.id, type: 'income', amount, category: sourceName, 
+              description: `WhatsApp: ${cleanText}`, is_fixed: isFixed, source: 'whatsapp'
+            });
+            if (!error) finalResponse = `Registrei uma entrada ${isFixed ? 'fixo ' : ''}de R$ ${amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} de ${sourceName}. ✅`;
+            else finalResponse = "Erro ao registrar. Tente novamente.";
+          } else if (summaryMatch) {
+            parserUsed = "regex";
+            detectedIntent = "query_summary";
+            const type = summaryMatch[1].toLowerCase() === "gastei" ? "expense" : "income";
+            const filter = summaryMatch[2]?.toLowerCase();
+            const period = summaryMatch[3].toLowerCase();
+            
+            const startDate = getDateRange(period);
+            let query = supabase.from("transactions").select("amount")
+              .eq("user_id", profile.id).eq("type", type).eq("is_deleted", false).gte("occurred_at", startDate);
+            
+            if (filter === "fixo") query = query.eq("is_fixed", true);
+            else if (filter === "variável") query = query.eq("is_fixed", false);
+
+            const { data: results, error } = await query;
+            if (!error) {
+              const count = results.length;
+              const total = results.reduce((sum, item) => sum + Number(item.amount), 0);
+              const totalFmt = total.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+              const periodText = period.includes("mês") ? "neste mês" : period.includes("semana") ? "nesta semana" : "hoje";
+              const filterText = filter ? ` em despesas ${filter}s` : "";
+              
+              if (count === 0) finalResponse = `Você ainda não tem ${type === 'expense' ? 'gastos' : 'receitas'}${filterText} registrados ${periodText}.`;
+              else if (period === "hoje") finalResponse = `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} lançamentos.`;
+              else finalResponse = `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}${filterText}.`;
+            } else finalResponse = "Erro ao consultar seus dados.";
+          } else {
+            // IA FALLBACK
+            parserUsed = "ai_fallback";
+            try {
+              const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+              const prompt = `Classify this financial input as JSON. 
+Intents: create_expense, create_income, unknown.
+Extract amount (numeric), category (string), and is_fixed (boolean).
+User: "${rawText}"
+Format: {"intent": "...", "amount": ..., "category": "...", "is_fixed": ...}`;
+              const resIA = await model.generateContent(prompt);
+              const rawIA = resIA.response.text().replace(/```json|```/gi, "").trim();
+              const start = rawIA.indexOf("{");
+              const end = rawIA.lastIndexOf("}");
+              if (start !== -1 && end !== -1) {
+                const aiJson = JSON.parse(rawIA.substring(start, end + 1));
+                detectedIntent = aiJson.intent;
+                if ((detectedIntent === "create_expense" || detectedIntent === "create_income") && aiJson.amount) {
+                  finalResponse = `Entendi um(a) ${detectedIntent === "create_expense" ? 'gasto' : 'entrada'} ${aiJson.is_fixed ? 'fixo(a) ' : ''}de R$ ${aiJson.amount} em ${aiJson.category}. Posso registrar?`;
+                  extractedData = aiJson;
+                }
+              }
+            } catch (e) { console.error("[AI Error]", e); }
+          }
+
+          // Save processing state to DB
+          const isPending = finalResponse.includes("Posso registrar?");
           await supabase.from("whatsapp_messages").insert({
-            whatsapp_id: message.id, 
-            sender_number: from, 
-            message_text: rawText,
-            status: "processed",
-            interpretation: { intent: "test_isolation", parserUsed: "debug_isolation" }, 
-            raw_data: body
+            whatsapp_id: message.id, sender_number: from, message_text: rawText,
+            status: isPending ? "pending_confirmation" : "processed",
+            interpretation: { intent: detectedIntent, parserUsed, ...extractedData }, 
+            raw_data: body, user_id: profile.id
           });
 
-          // 3. Send WhatsApp Response with Verbose Logging
-          if (process.env.WHATSAPP_ACCESS_TOKEN) {
-            const received_id = value?.metadata?.phone_number_id;
-            const sending_from_id = process.env.PHONE_NUMBER_ID || received_id;
-
-            if (sending_from_id) {
-              try {
-                console.log(`[WhatsApp API Trace] Using ID: ${sending_from_id}, TokenExists: ${!!process.env.WHATSAPP_ACCESS_TOKEN}`);
-                const waResponse = await fetch(`https://graph.facebook.com/v18.0/${sending_from_id}/messages`, {
-                  method: "POST",
-                  headers: {
-                    "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
-                    "Content-Type": "application/json"
-                  },
-                  body: JSON.stringify({
-                    messaging_product: "whatsapp",
-                    to: from,
-                    type: "text",
-                    text: { body: finalResponse }
-                  }),
-                });
-                const waResult: any = await waResponse.json();
-                console.log(`[WhatsApp API Response] Status: ${waResponse.status}, Body: ${JSON.stringify(waResult)}`);
-              } catch (err) {
-                console.error("[WhatsApp API Network Error]", err);
-              }
-            } else {
-              console.error("[WhatsApp Config Error] No PHONE_NUMBER_ID available (metadata or env).");
-            }
-          } else {
-            console.error("[WhatsApp Config Error] WHATSAPP_ACCESS_TOKEN is missing.");
-          }
+          await sendWA(from, finalResponse);
         }
       }
     }
   }
   res.status(200).send('OK');
 });
+
+// Helper for sending WhatsApp messages with verbose logging
+async function sendWA(to: string, text: string) {
+  const sending_from_id = process.env.PHONE_NUMBER_ID;
+  if (!sending_from_id || !process.env.WHATSAPP_ACCESS_TOKEN) {
+    console.error("[WhatsApp Config Error] Missing ID or Token");
+    return;
+  }
+  try {
+    const waResponse = await fetch(`https://graph.facebook.com/v18.0/${sending_from_id}/messages`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type: "text",
+        text: { body: text }
+      }),
+    });
+    const waResult: any = await waResponse.json();
+    console.log(`[WhatsApp API Response] Status: ${waResponse.status}, Body: ${JSON.stringify(waResult)}`);
+    return waResult;
+  } catch (err) {
+    console.error("[WhatsApp Send Error]", err);
+  }
+}
 
 export default app;
