@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "2.1.0 - Phase 3 Audio", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "2.2.0 - Phase 4 Robustness", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -54,6 +54,29 @@ function getDateRange(period: string) {
   
   const resultDate = new Date(start.getTime() - brOffset);
   return resultDate.toISOString();
+}
+
+function normalizeMessage(text: string): string {
+  // 1. Trim, Lowercase, Remove extra spaces
+  let normalized = text.trim().toLowerCase().replace(/\s+/g, " ");
+
+  // 2. Remove Wake Words only at the start
+  const wakeWords = ["oi zlai", "olá zlai", "ei zlai", "zlai", "z lai", "zlay"];
+  for (const word of wakeWords) {
+    if (normalized.startsWith(word)) {
+      normalized = normalized.substring(word.length).trim();
+      break;
+    }
+  }
+
+  // 3. Normalize common abbreviations
+  normalized = normalized.replace(/\bqto\b/g, "quanto");
+
+  // 4. Remove unwanted punctuation but keep decimals, time, and 'h'
+  // Keep: 0-9, a-z, Portuguese chars, ',', '.', ':', 'h'
+  normalized = normalized.replace(/[^a-z0-9àáâãéêíóôõúç\.,:h\s]/g, " ").replace(/\s+/g, " ").trim();
+
+  return normalized;
 }
 
 function parseDateTimeBR(dateStr: string, timeStr: string) {
@@ -134,19 +157,20 @@ async function transcribeAudio(buffer: Buffer, mime: string): Promise<{ text: st
 }
 
 async function handleMessageLogic(from: string, rawText: string, messageId: string, profile: any, body: any) {
-  let finalResponse = "Pode me explicar melhor? Ex: 'gastei 30 no mercado'";
+  const normalizedText = normalizeMessage(rawText);
+  let finalResponse = `Não entendi o que você quis dizer por "${rawText}".\n\nPosso te ajudar com:\n- Registrar gasto: 'gastei 30 no mercado'\n- Consultar gastos: 'quanto gastei esta semana'\n- Criar compromisso: 'agende treino hoje às 18h'`;
   let detectedIntent = "unknown";
   let parserUsed = "none";
   let extractedData: any = {};
 
-  const lowText = rawText.toLowerCase();
+  const lowText = normalizedText;
   const isFixed = lowText.includes("fixo");
-  const cleanText = rawText.replace(/fixo|variável|variavel/gi, "").trim();
+  const cleanText = lowText.replace(/fixo|variável|variavel/gi, "").trim();
 
-  // DETERMINISTIC REGEX
-  const expenseRegex = /^(?:gastei|paguei)\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:no|na|em|de)\s+(.*)/i;
-  const incomeRegex = /^recebi\s+(\d+(?:[.,]\d+)?)(?:\s+reais)?\s+(?:do|da|de|dos|das)\s+(.*)/i;
-  const summaryRegex = /^quanto\s+(gastei|recebi)\s+(?:de\s+(fixo|variável)\s+)?(hoje|essa\s+semana|esta\s+semana|este\s+mês|esse\s+mês)[\s?]*$/i;
+  // DETERMINISTIC REGEX - Optimized for normalized text
+  const expenseRegex = /^(?:gastei|paguei)\s+(\d+(?:[\.,]\d+)?)(?:\s+reais)?\s+(?:no|na|em|de)\s+(.*)/i;
+  const incomeRegex = /^recebi\s+(\d+(?:[\.,]\d+)?)(?:\s+reais)?\s+(?:do|da|de|dos|das)\s+(.*)/i;
+  const summaryRegex = /^quanto\s+(gastei|recebi)\s+(?:de\s+(fixo|variável)\s+)?(hoje|esta\s+semana|este\s+mes|nesta\s+semana|neste\s+mes)[\s?]*$/i;
 
   const expenseMatch = cleanText.match(expenseRegex);
   const incomeMatch = cleanText.match(incomeRegex);
@@ -159,7 +183,7 @@ async function handleMessageLogic(from: string, rawText: string, messageId: stri
     const category = expenseMatch[2].trim();
     const { error } = await supabase.from("transactions").insert({
       user_id: profile.id, type: 'expense', amount, category, 
-      description: `WhatsApp: ${cleanText}`, is_fixed: isFixed, source: 'whatsapp'
+      description: `WhatsApp: ${rawText}`, is_fixed: isFixed, source: 'whatsapp'
     });
     if (!error) finalResponse = `Registrei um gasto ${isFixed ? 'fixo ' : ''}de R$ ${amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em ${category}. ✅`;
     else finalResponse = "Erro ao registrar. Tente novamente.";
@@ -170,7 +194,7 @@ async function handleMessageLogic(from: string, rawText: string, messageId: stri
     const sourceName = incomeMatch[2].trim();
     const { error } = await supabase.from("transactions").insert({
       user_id: profile.id, type: 'income', amount, category: sourceName, 
-      description: `WhatsApp: ${cleanText}`, is_fixed: isFixed, source: 'whatsapp'
+      description: `WhatsApp: ${rawText}`, is_fixed: isFixed, source: 'whatsapp'
     });
     if (!error) finalResponse = `Registrei uma entrada ${isFixed ? 'fixo ' : ''}de R$ ${amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} de ${sourceName}. ✅`;
     else finalResponse = "Erro ao registrar. Tente novamente.";
@@ -193,17 +217,17 @@ async function handleMessageLogic(from: string, rawText: string, messageId: stri
       const count = results.length;
       const total = results.reduce((sum, item) => sum + Number(item.amount), 0);
       const totalFmt = total.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-      const periodText = period.includes("mês") ? "neste mês" : period.includes("semana") ? "nesta semana" : "hoje";
+      const periodText = period.includes("mes") ? "neste mês" : period.includes("semana") ? "nesta semana" : "hoje";
       const filterText = filter ? ` em despesas ${filter}s` : "";
       
       if (count === 0) finalResponse = `Você ainda não tem ${type === 'expense' ? 'gastos' : 'receitas'}${filterText} registrados ${periodText}.`;
       else if (period === "hoje") finalResponse = `Hoje você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt} em ${count} lançamentos.`;
       else finalResponse = `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} você ${type === 'expense' ? 'gastou' : 'recebeu'} R$ ${totalFmt}${filterText}.`;
     } else finalResponse = "Erro ao consultar seus dados.";
-  } else if (lowText.match(/^(?:agende|marque|crie|agenda)\s+(?:compromisso\s+)?(?:para\s+)?(hoje|amanhã|segunda|terça|quarta|quinta|sexta|sábado|domingo|sabado)\s+às\s+(\d{1,2}(?::\d{2})?\s*(?:h|horas)?)\s+(.*)/i)) {
+  } else if (lowText.match(/^(?:agende|marque|crie|agenda)\s+(?:compromisso\s+)?(?:para\s+)?(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\s+as\s+(\d{1,2}(?::\d{2})?\s*(?:h|horas)?)\s+(.*)/i)) {
     parserUsed = "regex";
     detectedIntent = "create_event";
-    const m = lowText.match(/^(?:agende|marque|crie|agenda)\s+(?:compromisso\s+)?(?:para\s+)?(hoje|amanhã|segunda|terça|quarta|quinta|sexta|sábado|domingo|sabado)\s+às\s+(\d{1,2}(?::\d{2})?\s*(?:h|horas)?)\s+(.*)/i);
+    const m = lowText.match(/^(?:agende|marque|crie|agenda)\s+(?:compromisso\s+)?(?:para\s+)?(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\s+as\s+(\d{1,2}(?::\d{2})?\s*(?:h|horas)?)\s+(.*)/i);
     if (m) {
       const startAt = parseDateTimeBR(m[1], m[2]);
       const title = m[3].trim();
@@ -213,10 +237,10 @@ async function handleMessageLogic(from: string, rawText: string, messageId: stri
       if (!error) finalResponse = `Compromisso criado para ${m[1]} às ${startAt.getUTCHours()}:${startAt.getUTCMinutes().toString().padStart(2, '0')}: ${title}. ✅`;
       else finalResponse = "Erro ao criar compromisso.";
     }
-  } else if (lowText.match(/(?:quais\s+meus\s+compromissos\s+de\s+|tenho\s+compromisso\s+|agenda\s+de\s+)(hoje|amanhã)/i)) {
+  } else if (lowText.match(/(?:quais\s+meus\s+compromissos\s+de\s+|tenho\s+compromisso\s+|agenda\s+de\s+)(hoje|amanha)/i)) {
     parserUsed = "regex";
     detectedIntent = "query_events";
-    const m = lowText.match(/(?:quais\s+meus\s+compromissos\s+de\s+|tenho\s+compromisso\s+|agenda\s+de\s+)(hoje|amanhã)/i);
+    const m = lowText.match(/(?:quais\s+meus\s+compromissos\s+de\s+|tenho\s+compromisso\s+|agenda\s+de\s+)(hoje|amanha)/i);
     const period = m?.[1] || "hoje";
     const dayStart = getDateRange(period);
     const nextDay = new Date(new Date(dayStart).getTime() + 24 * 60 * 60 * 1000).toISOString();
@@ -237,7 +261,7 @@ async function handleMessageLogic(from: string, rawText: string, messageId: stri
         finalResponse = `${period === 'hoje' ? 'Hoje' : 'Amanhã'} você tem ${events.length} compromisso(s): ${list}.`;
       }
     } else finalResponse = "Erro ao carregar sua agenda.";
-  } else if (/^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)[\s!.]*$/i.test(rawText)) {
+  } else if (/^(sim|s|ok|pode|confirmar|confirmado|vambora|bora)[\s!.]*$/i.test(lowText)) {
     parserUsed = "affirmation";
     const { data: lastMsg } = await supabase.from("whatsapp_messages")
       .select("interpretation, id").eq("user_id", profile.id).eq("status", "pending_confirmation")
@@ -276,7 +300,7 @@ Intents: create_expense, create_income, create_event, unknown.
 - For agenda: Extract title (string), date (YYYY-MM-DD), time (HH:mm). 
 Current Time: ${new Date().toISOString()} (UTC-3 is -3h).
 Ex: "marque dentista amanha 14h": {"intent": "create_event", "title": "dentista", "start_time": "2024-03-21T14:00:00.000Z"}
-User: "${rawText}"
+User input: "${lowText}"
 Format: {"intent": "...", ...fields...}`;
       const resIA = await model.generateContent(prompt);
       const rawIA = resIA.response.text().replace(/```json|```/gi, "").trim();
@@ -300,14 +324,14 @@ Format: {"intent": "...", ...fields...}`;
     } catch (e) { console.error("[AI Error]", e); }
   }
 
-  console.log(`[Processing] Parser: ${parserUsed}, Intent: ${detectedIntent}, Text: "${rawText}"`);
+  console.log(`[Processing] Parser: ${parserUsed}, Intent: ${detectedIntent}, Raw: "${rawText}", Normalized: "${normalizedText}"`);
 
   // Save processing state to DB
   const isPending = finalResponse.includes("Posso registrar?") || finalResponse.includes("Posso agendar?");
   await supabase.from("whatsapp_messages").insert({
     whatsapp_id: messageId, sender_number: from, message_text: rawText,
     status: isPending ? "pending_confirmation" : "processed",
-    interpretation: { intent: detectedIntent, parserUsed, ...extractedData }, 
+    interpretation: { intent: detectedIntent, parserUsed, normalizedText, ...extractedData }, 
     raw_data: body, user_id: profile.id
   });
 
