@@ -70,7 +70,10 @@ function normalizeMessage(text: string): string {
   }
 
   // 3. Normalize common abbreviations
-  normalized = normalized.replace(/\bqto\b/g, "quanto");
+  normalized = normalized.replace(/\bqto\b/g, "quanto")
+    .replace(/\bessa semana\b/g, "esta semana")
+    .replace(/\bessa\b/g, "esta")
+    .replace(/\besse\b/g, "este");
 
   // 4. Remove unwanted punctuation but keep decimals, time, and 'h'
   // Keep: 0-9, a-z, Portuguese chars, ',', '.', ':', 'h'
@@ -170,7 +173,7 @@ async function handleMessageLogic(from: string, rawText: string, messageId: stri
   // DETERMINISTIC REGEX - Optimized for normalized text
   const expenseRegex = /^(?:gastei|paguei)\s+(\d+(?:[\.,]\d+)?)(?:\s+reais)?\s+(?:no|na|em|de)\s+(.*)/i;
   const incomeRegex = /^recebi\s+(\d+(?:[\.,]\d+)?)(?:\s+reais)?\s+(?:do|da|de|dos|das)\s+(.*)/i;
-  const summaryRegex = /^quanto\s+(gastei|recebi)\s+(?:de\s+(fixo|variável)\s+)?(hoje|esta\s+semana|este\s+mes|nesta\s+semana|neste\s+mes)[\s?]*$/i;
+  const summaryRegex = /^quanto\s+(gastei|recebi)\s+(?:de\s+(fixo|variável)\s+)?(hoje|esta\s+semana|este\s+mes|nesta\s+semana|neste\s+mes|essa\s+semana|esse\s+mes)[\s?]*$/i;
 
   const expenseMatch = cleanText.match(expenseRegex);
   const incomeMatch = cleanText.match(incomeRegex);
