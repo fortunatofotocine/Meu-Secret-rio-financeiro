@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "2.3.0 - Phase 5 Dedicated STT", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "2.3.1 - Phase 5.1 Gemini 2.0", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -137,7 +137,7 @@ async function downloadWAMedia(mediaId: string): Promise<{ buffer?: Buffer, mime
 }
 
 async function transcribeAudio(buffer: Buffer, mime: string): Promise<{ text: string | null, error?: string }> {
-  const modelName = "gemini-1.5-flash"; 
+  const modelName = "gemini-2.0-flash"; 
   const cleanMime = mime.split(";")[0].trim();
   console.log(`[STT Layer] Using ${modelName} for pure transcription. Mime: ${cleanMime}`);
   
@@ -293,7 +293,7 @@ async function handleMessageLogic(from: string, rawText: string, messageId: stri
     // IA FALLBACK
     parserUsed = "ai_fallback";
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `Classify this input as JSON. 
 Intents: create_expense, create_income, create_event, unknown.
 - For financial: Extract amount (numeric), category (string), is_fixed (boolean).
