@@ -60,14 +60,9 @@ function normalizeMessage(text: string): string {
   // 1. Trim, Lowercase, Remove extra spaces
   let normalized = text.trim().toLowerCase().replace(/\s+/g, " ");
 
-  // 2. Remove Wake Words only at the start
-  const wakeWords = ["oi zlai", "olá zlai", "ei zlai", "zlai", "z lai", "zlay"];
-  for (const word of wakeWords) {
-    if (normalized.startsWith(word)) {
-      normalized = normalized.substring(word.length).trim();
-      break;
-    }
-  }
+  // 2. Remove Wake Words only at the start, handle trailing comma/colon
+  const wakeWordPattern = /^(?:oi zlai|olá zlai|ola zlai|ei zlai|zlai|z lai|zlay)\s*[,:]?\s*/i;
+  normalized = normalized.replace(wakeWordPattern, "").trim();
 
   // 3. Normalize common abbreviations
   normalized = normalized.replace(/\bqto\b/g, "quanto")
@@ -76,8 +71,10 @@ function normalizeMessage(text: string): string {
     .replace(/\besse\b/g, "este");
 
   // 4. Remove unwanted punctuation but keep decimals, time, and 'h'
-  // Keep: 0-9, a-z, Portuguese chars, ',', '.', ':', 'h'
   normalized = normalized.replace(/[^a-z0-9àáâãéêíóôõúç\.,:h\s]/g, " ").replace(/\s+/g, " ").trim();
+  
+  // 5. Final safety: remove leading punctuation that breaks regex starts (like , paguei)
+  normalized = normalized.replace(/^[\.,:h\s]+/, "").trim();
 
   return normalized;
 }
@@ -140,7 +137,7 @@ async function downloadWAMedia(mediaId: string): Promise<{ buffer?: Buffer, mime
 }
 
 async function transcribeAudio(buffer: Buffer, mime: string): Promise<{ text: string | null, error?: string }> {
-  const modelName = "gemini-1.5-pro"; 
+  const modelName = "gemini-1.5-pro-latest"; 
   const cleanMime = mime.split(";")[0].trim();
   console.log(`[Transcription] Model: ${modelName}, CleanMime: ${cleanMime}`);
   
