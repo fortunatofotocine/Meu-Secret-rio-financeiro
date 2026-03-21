@@ -156,7 +156,7 @@ async function transcribeAudio(buffer: Buffer, mime: string): Promise<{ text: st
   }
 }
 
-async function handleMessageLogic(from: string, rawText: string, messageId: string, profile: any, body: any) {
+async function handleMessageLogic(from: string, rawText: string, messageId: string, profile: any, body: any): Promise<{ intent: string, parser: string, normalized: string, response: string, extractedData: any }> {
   const normalizedText = normalizeMessage(rawText);
   let finalResponse = `Não entendi o que você quis dizer por "${rawText}".\n\nPosso te ajudar com:\n- Registrar gasto: 'gastei 30 no mercado'\n- Consultar gastos: 'quanto gastei esta semana'\n- Criar compromisso: 'agende treino hoje às 18h'`;
   let detectedIntent = "unknown";
@@ -325,17 +325,7 @@ Format: {"intent": "...", ...fields...}`;
   }
 
   console.log(`[Processing] Parser: ${parserUsed}, Intent: ${detectedIntent}, Raw: "${rawText}", Normalized: "${normalizedText}"`);
-
-  // Save processing state to DB
-  const isPending = finalResponse.includes("Posso registrar?") || finalResponse.includes("Posso agendar?");
-  await supabase.from("whatsapp_messages").insert({
-    whatsapp_id: messageId, sender_number: from, message_text: rawText,
-    status: isPending ? "pending_confirmation" : "processed",
-    interpretation: { intent: detectedIntent, parserUsed, normalizedText, ...extractedData }, 
-    raw_data: body, user_id: profile.id
-  });
-
-  await sendWA(from, finalResponse);
+  return { intent: detectedIntent, parser: parserUsed, normalized: normalizedText, response: finalResponse, extractedData };
 }
 
 app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
