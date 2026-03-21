@@ -89,29 +89,33 @@ function parseDateTimeBR(dateStr: string, timeStr: string) {
   return new Date(target.getTime() - brOffset);
 }
 
-async function downloadWAMedia(mediaId: string): Promise<{ buffer: Buffer, mime: string } | null> {
+async function downloadWAMedia(mediaId: string): Promise<{ buffer?: Buffer, mime?: string, error?: string }> {
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!token) return null;
+  if (!token) return { error: "Missing WHATSAPP_ACCESS_TOKEN" };
   try {
     const metaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
-    const { url, mime_type, size } = await metaRes.json() as any;
-    console.log(`[Media Download] Meta URL: ${url}, Mime: ${mime_type}, Size: ${size}`);
+    const mediaData = await metaRes.json() as any;
+    if (!metaRes.ok) return { error: `Meta API Metadata Error: ${JSON.stringify(mediaData)}` };
     
-    if (!url) return null;
+    const { url, mime_type } = mediaData;
+    if (!url) return { error: "No media URL returned from Meta" };
+
     const mediaRes = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!mediaRes.ok) return null;
-    return { buffer: Buffer.from(await mediaRes.arrayBuffer()), mime: mime_type };
-  } catch (e) {
+    if (!mediaRes.ok) return { error: `Meta Media Download Error: ${mediaRes.status} ${mediaRes.statusText}` };
+
+    const buffer = Buffer.from(await mediaRes.arrayBuffer());
+    return { buffer, mime: mime_type };
+  } catch (e: any) {
     console.error("[Media Error]", e);
-    return null;
+    return { error: `Download Exception: ${e.message || String(e)}` };
   }
 }
 
-async function transcribeAudio(buffer: Buffer, mime: string): Promise<string | null> {
+async function transcribeAudio(buffer: Buffer, mime: string): Promise<{ text: string | null, error?: string }> {
   const modelName = "gemini-1.5-pro"; 
-  const cleanMime = mime.split(";")[0].trim(); // Crucial: Gemini rejects "audio/ogg; codecs=opus"
+  const cleanMime = mime.split(";")[0].trim();
   console.log(`[Transcription] Model: ${modelName}, CleanMime: ${cleanMime}`);
   
   try {
@@ -121,12 +125,11 @@ async function transcribeAudio(buffer: Buffer, mime: string): Promise<string | n
       "Transcreva exatamente o que foi dito neste áudio em português brasileiro. Se não houver fala clara, retorne apenas [silêncio]."
     ]);
     const text = res.response.text().trim();
-    if (text === "[silêncio]") return null;
-    return text;
+    if (text === "[silêncio]") return { text: null };
+    return { text };
   } catch (e: any) {
-    console.error("[Transcription Error Detailed]", e.message || e);
-    // Return explicit error for logging in handleIncomingMessage if possible
-    return null;
+    console.error("[Transcription Error Detailed]", e);
+    return { text: null, error: `Gemini Error: ${e.message || String(e)}` };
   }
 }
 
@@ -341,20 +344,31 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
             const mediaId = message.audio?.id;
             console.log(`[Audio] Received media_id: ${mediaId}`);
             
-            const media = await downloadWAMedia(mediaId);
-            if (!media) {
+            const mediaResult = await downloadWAMedia(mediaId);
+            if (mediaResult.error || !mediaResult.buffer) {
+              await supabase.from("whatsapp_messages").insert({
+                whatsapp_id: message.id, sender_number: from, message_text: "[DOWNLOAD_FAILED]",
+                status: "error", interpretation: { error: mediaResult.error || "No buffer" },
+                raw_data: body, user_id: profile.id
+              });
               await sendWA(from, "Não consegui processar seu áudio. Pode tentar novamente?");
               continue;
             }
 
-            const transcription = await transcribeAudio(media.buffer, media.mime);
-            if (!transcription) {
+            const transResult = await transcribeAudio(mediaResult.buffer, mediaResult.mime!);
+            if (transResult.error || !transResult.text) {
+              const errorText = transResult.error || "Transcrição vazia ou silêncio";
+              await supabase.from("whatsapp_messages").insert({
+                whatsapp_id: message.id, sender_number: from, message_text: "[TRANSCRIPTION_FAILED]",
+                status: "error", interpretation: { error: errorText },
+                raw_data: body, user_id: profile.id
+              });
               await sendWA(from, "Não consegui entender seu áudio. Pode tentar novamente ou mandar em texto?");
               continue;
             }
 
-            console.log(`[Audio Transcription] Result: "${transcription}"`);
-            await handleMessageLogic(from, transcription, message.id, profile, body);
+            console.log(`[Audio Transcription] Result: "${transResult.text}"`);
+            await handleMessageLogic(from, transResult.text, message.id, profile, body);
           }
         }
       }
