@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "2.2.0 - Phase 4 Robustness", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "2.3.0 - Phase 5 Dedicated STT", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
@@ -137,22 +137,22 @@ async function downloadWAMedia(mediaId: string): Promise<{ buffer?: Buffer, mime
 }
 
 async function transcribeAudio(buffer: Buffer, mime: string): Promise<{ text: string | null, error?: string }> {
-  const modelName = "gemini-1.5-pro-latest"; 
+  const modelName = "gemini-1.5-flash"; 
   const cleanMime = mime.split(";")[0].trim();
-  console.log(`[Transcription] Model: ${modelName}, CleanMime: ${cleanMime}`);
+  console.log(`[STT Layer] Using ${modelName} for pure transcription. Mime: ${cleanMime}`);
   
   try {
     const model = genAI.getGenerativeModel({ model: modelName });
     const res = await model.generateContent([
       { inlineData: { data: buffer.toString("base64"), mimeType: cleanMime } },
-      "Transcreva exatamente o que foi dito neste áudio em português brasileiro. Se não houver fala clara, retorne apenas [silêncio]."
+      "Transcreva exatamente o que foi dito neste áudio em português brasileiro. Retorne APENAS o texto transcrito, sem introduções ou comentários extras."
     ]);
     const text = res.response.text().trim();
-    if (text === "[silêncio]") return { text: null };
+    if (!text || text === "[silêncio]") return { text: null };
     return { text };
   } catch (e: any) {
-    console.error("[Transcription Error Detailed]", e);
-    return { text: null, error: `Gemini Error: ${e.message || String(e)}` };
+    console.error("[Transcription Error]", e);
+    return { text: null, error: `STT Error: ${e.message || String(e)}` };
   }
 }
 
@@ -363,7 +363,23 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
 
           if (type === 'text') {
             const rawText = (message.text?.body || "").trim();
-            await handleMessageLogic(from, rawText, message.id, profile, body);
+            const result = await handleMessageLogic(from, rawText, message.id, profile, body);
+            
+            // Comprehensive Logging
+            const isPending = result.response.includes("Posso registrar?") || result.response.includes("Posso agendar?");
+            await supabase.from("whatsapp_messages").insert({
+              whatsapp_id: message.id, sender_number: from, message_text: rawText,
+              status: isPending ? "pending_confirmation" : "processed",
+              interpretation: { 
+                intent: result.intent, 
+                parserUsed: result.parser, 
+                normalizedText: result.normalized, 
+                ...result.extractedData 
+              }, 
+              raw_data: body, user_id: profile.id
+            });
+            await sendWA(from, result.response);
+
           } else if (type === 'audio') {
             const mediaId = message.audio?.id;
             console.log(`[Audio] Received media_id: ${mediaId}`);
@@ -372,7 +388,7 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
             if (mediaResult.error || !mediaResult.buffer) {
               await supabase.from("whatsapp_messages").insert({
                 whatsapp_id: message.id, sender_number: from, message_text: "[DOWNLOAD_FAILED]",
-                status: "error", interpretation: { error: mediaResult.error || "No buffer" },
+                status: "error", interpretation: { media_id: mediaId, error: mediaResult.error || "No buffer" },
                 raw_data: body, user_id: profile.id
               });
               await sendWA(from, "Não consegui processar seu áudio. Pode tentar novamente?");
@@ -384,15 +400,33 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
               const errorText = transResult.error || "Transcrição vazia ou silêncio";
               await supabase.from("whatsapp_messages").insert({
                 whatsapp_id: message.id, sender_number: from, message_text: "[TRANSCRIPTION_FAILED]",
-                status: "error", interpretation: { error: errorText },
+                status: "error", interpretation: { media_id: mediaId, mime: mediaResult.mime, error: errorText },
                 raw_data: body, user_id: profile.id
               });
               await sendWA(from, "Não consegui entender seu áudio. Pode tentar novamente ou mandar em texto?");
               continue;
             }
 
-            console.log(`[Audio Transcription] Result: "${transResult.text}"`);
-            await handleMessageLogic(from, transResult.text, message.id, profile, body);
+            // Fall through to handles with transcribed text
+            const result = await handleMessageLogic(from, transResult.text, message.id, profile, body);
+            
+            // Comprehensive Logging for Audio
+            const isPending = result.response.includes("Posso registrar?") || result.response.includes("Posso agendar?");
+            await supabase.from("whatsapp_messages").insert({
+              whatsapp_id: message.id, sender_number: from, message_text: `[AUDIO] ${transResult.text}`,
+              status: isPending ? "pending_confirmation" : "processed",
+              interpretation: { 
+                media_id: mediaId,
+                mime: mediaResult.mime,
+                raw_transcription: transResult.text,
+                normalizedText: result.normalized,
+                intent: result.intent, 
+                parserUsed: result.parser, 
+                ...result.extractedData 
+              }, 
+              raw_data: body, user_id: profile.id
+            });
+            await sendWA(from, result.response);
           }
         }
       }
