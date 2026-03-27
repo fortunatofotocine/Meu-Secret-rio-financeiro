@@ -19,6 +19,8 @@ export type Transaction = {
   date: string;
   receipt_url?: string;
   fixed_expense_id?: string;
+  fixed_expense_instance_id?: string;
+  user_id: string;
 };
 
 export type Event = {
@@ -41,14 +43,43 @@ export type WhatsAppMessage = {
   interpretation?: any;
 };
 
+export type FixedExpenseType = 'fixed' | 'installment' | 'one_time';
+export type FixedExpenseStatus = 'pending' | 'paid' | 'overdue';
+
 export type FixedExpense = {
   id: string;
   created_at: string;
+  updated_at: string;
   description: string;
   amount: number;
   category: string;
   due_day: number;
   active: boolean;
+  user_id: string;
+  type: FixedExpenseType;
+  total_amount?: number;
+  installment_count?: number;
+  installment_amount?: number;
+  start_date: string;
+  end_date?: string;
+  notify_whatsapp: boolean;
+};
+
+export type FixedExpenseInstance = {
+  id: string;
+  user_id: string;
+  fixed_expense_id: string;
+  type: FixedExpenseType;
+  installment_number?: number;
+  installment_label?: string;
+  amount: number;
+  due_date: string;
+  status: FixedExpenseStatus;
+  paid_at?: string;
+  payment_method?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Profile = {
