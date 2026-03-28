@@ -1,10 +1,10 @@
 import { supabase } from '../../lib/supabaseServer';
 import { UserContext, IntentResult, CommandResult, IntentEntities } from './types';
 import { ReportService } from './ReportService';
+import { NotificationService } from './NotificationService';
 import { ConversationStateService } from './ConversationStateService';
 import { FixedExpenseService } from './FixedExpenseService';
 import { ResponseComposerService } from './ResponseComposerService';
-import { NotificationService } from './NotificationService';
 
 export class FinancialCommandService {
   /**
@@ -74,7 +74,7 @@ export class FinancialCommandService {
       case "marcar_conta_paga":
         return await this.handlePayBill(user, entities);
       
-      case "solicitar_resumo_financeiro":
+      case "consultar_resumo_semana":
         return await this.handleManualSummary(user);
 
       // --- Info ---
@@ -167,9 +167,23 @@ export class FinancialCommandService {
   }
 
   private static async handleManualSummary(userContext: UserContext): Promise<CommandResult> {
-    const todayStr = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const brOffset = -3 * 60 * 60 * 1000;
+    const todayBRT = new Date(now.getTime() + brOffset);
+    const todayStr = todayBRT.toISOString().split("T")[0];
+
+    const lastMon = new Date(todayBRT.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const lastSun = new Date(todayBRT.getTime() - 1 * 24 * 60 * 60 * 1000);
+    
+    const startStr = lastMon.toISOString().split("T")[0];
+    const endStr = lastSun.toISOString().split("T")[0];
+
     try {
-      const message = await NotificationService.getWeeklyFinancialSummaryMessage(userContext.userId, todayStr);
+      const { FinancialSummaryService } = await import('./FinancialSummaryService');
+      const summary = await FinancialSummaryService.getWeeklyData(userContext.userId, startStr, endStr);
+      const bills = await FinancialSummaryService.getBillsStatus(userContext.userId);
+
+      const message = ResponseComposerService.formatWeeklySummary(summary, bills);
       return { success: true, message };
     } catch (error: any) {
       console.error("[FinancialCommandService] Error generating manual summary:", error);

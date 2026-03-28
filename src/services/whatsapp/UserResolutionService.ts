@@ -8,6 +8,7 @@ export class UserResolutionService {
 
     const { data: profile, error } = await supabase
       .from('profiles')
+      .select('id, full_name')
       .ilike('whatsapp_number', `%${lastDigits}`)
       .limit(1)
       .single();
@@ -18,6 +19,11 @@ export class UserResolutionService {
         profileName: 'Visitante',
         whatsappNumber: normalized,
         isRegistered: false,
+        state: {
+          userId: '',
+          status: 'idle',
+          lastInteraction: new Date().toISOString()
+        }
       };
     }
 
@@ -26,6 +32,11 @@ export class UserResolutionService {
       profileName: profile.full_name || 'Usuário',
       whatsappNumber: normalized,
       isRegistered: true,
+      state: {
+        userId: profile.id,
+        status: 'idle',
+        lastInteraction: new Date().toISOString()
+      }
     };
   }
 

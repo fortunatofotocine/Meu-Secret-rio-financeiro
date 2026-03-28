@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { IntentResult, Intent } from "./types";
+import { supabase } from "../../lib/supabaseServer";
 import * as dotenv from "dotenv";
 
 dotenv.config();
@@ -35,7 +36,7 @@ Analise a mensagem e retorne APENAS um JSON válido.
 - consultar_receitas_periodo: Perguntas sobre quanto recebeu.
 - confirmar: Quando o usuário diz "sim", "pode", "está certo", "confirmado", "ok".
 - cancelar: Quando o usuário diz "não", "para", "cancela", "errado".
-- [x] solicitar_resumo_financeiro: Quando o usuário pede o "resumo da semana", "balanço semanal", "como foi minha semana", "relatório", "balanço".
+- [x] consultar_resumo_semana: Quando o usuário pede o "resumo da semana", "balanço semanal", "como foi minha semana", "relatório", "balanço", "meu resumo".
 - [x] listar_contas_hoje: "o que eu preciso pagar hoje?", "contas de hoje", "o que vence hoje".
 - [x] ajuda: Pedido de instruções ou "como funciona".
 - onboarding: Pergunta sobre "quem é você" ou "como funciona".
@@ -51,19 +52,29 @@ Analise a mensagem e retorne APENAS um JSON válido.
 "${text}"
 `;
 
+    const lowText = text.toLowerCase();
+
+    // 1. Smart Fallback for Weekly Summary
+    if (lowText.includes("resumo") && (lowText.includes("semana") || lowText.includes("semanal"))) {
+      return {
+        intent: "consultar_resumo_semana",
+        confidence: 0.95,
+        entities: {}
+      };
+    }
+
     try {
       const result = await model.generateContent(prompt);
-      let responseText = result.response.text().trim();
+      const response = await result.response;
+      let responseText = response.text().trim();
       
-      // Limpeza de Markdown se necessário
       if (responseText.includes("```")) {
         responseText = responseText.replace(/```json|```/g, "").trim();
       }
       
       const parsed = JSON.parse(responseText);
       
-      // Garantia de tipos
-      return {
+      const intentResult: IntentResult = {
         intent: (parsed.intent || "fallback") as Intent,
         confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
         entities: {
@@ -73,8 +84,21 @@ Analise a mensagem e retorne APENAS um JSON válido.
           date_reference: parsed.entities?.date_reference || undefined
         }
       };
+
+      // Log results to Supabase for debugging
+      await supabase.from("system_logs").insert([{
+        event_type: "whatsapp_intent_classification",
+        payload: { 
+          text, 
+          intent: intentResult.intent, 
+          confidence: intentResult.confidence, 
+          entities: intentResult.entities 
+        }
+      }]);
+
+      return intentResult;
     } catch (err) {
-      console.error("[IntentClassification] Erro ao parsear JSON do Gemini:", err);
+      console.error("[IntentClassification] Error:", err);
       return {
         intent: "fallback",
         confidence: 0,

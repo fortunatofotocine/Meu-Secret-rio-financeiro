@@ -39,7 +39,7 @@ export type Intent =
   | "listar_contas_semana"
   | "listar_contas_atrasadas"
   | "marcar_conta_paga"
-  | "solicitar_resumo_financeiro"
+  | "consultar_resumo_semana"
   | "confirmar"
   | "cancelar"
   | "ajuda"
