@@ -1,12 +1,12 @@
-import { UserResolutionService } from "./UserResolutionService";
-import { TranscriptionService } from "./TranscriptionService";
-import { IntentClassificationService } from "./IntentClassificationService";
-import { FinancialCommandService } from "./FinancialCommandService";
-import { ResponseComposerService } from "./ResponseComposerService";
-import { ValidationService } from "./ValidationService";
-import { ConversationStateService } from "./ConversationStateService";
-import { WhatsAppMessage, IntentResult } from "./types";
-import { supabase } from "../../lib/supabaseServer";
+import { UserResolutionService } from "./UserResolutionService.js";
+import { TranscriptionService } from "./TranscriptionService.js";
+import { IntentClassificationService } from "./IntentClassificationService.js";
+import { FinancialCommandService } from "./FinancialCommandService.js";
+import { ResponseComposerService } from "./ResponseComposerService.js";
+import { ValidationService } from "./ValidationService.js";
+import { ConversationStateService } from "./ConversationStateService.js";
+import { WhatsAppMessage, IntentResult } from "./types.js";
+import { supabase } from "../../lib/supabaseServer.js";
 
 export class WhatsAppWebhookService {
   /**

@@ -12,3 +12,4 @@ _agent
 .gemini
 
 .vercel
+.env*.local

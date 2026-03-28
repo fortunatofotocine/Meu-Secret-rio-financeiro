@@ -1,10 +1,10 @@
-import { supabase } from '../../lib/supabaseServer';
-import { UserContext, IntentResult, CommandResult, IntentEntities } from './types';
-import { ReportService } from './ReportService';
-import { NotificationService } from './NotificationService';
-import { ConversationStateService } from './ConversationStateService';
-import { FixedExpenseService } from './FixedExpenseService';
-import { ResponseComposerService } from './ResponseComposerService';
+import { supabase } from '../../lib/supabaseServer.js';
+import { UserContext, IntentResult, CommandResult, IntentEntities } from './types.js';
+import { ReportService } from './ReportService.js';
+import { NotificationService } from './NotificationService.js';
+import { ConversationStateService } from './ConversationStateService.js';
+import { FixedExpenseService } from './FixedExpenseService.js';
+import { ResponseComposerService } from './ResponseComposerService.js';
 
 export class FinancialCommandService {
   /**
@@ -179,7 +179,7 @@ export class FinancialCommandService {
     const endStr = lastSun.toISOString().split("T")[0];
 
     try {
-      const { FinancialSummaryService } = await import('./FinancialSummaryService');
+      const { FinancialSummaryService } = await import('./FinancialSummaryService.js');
       const summary = await FinancialSummaryService.getWeeklyData(userContext.userId, startStr, endStr);
       const bills = await FinancialSummaryService.getBillsStatus(userContext.userId);
 

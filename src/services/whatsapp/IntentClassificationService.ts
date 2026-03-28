@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { IntentResult, Intent } from "./types";
-import { supabase } from "../../lib/supabaseServer";
+import { IntentResult, Intent } from "./types.js";
+import { supabase } from "../../lib/supabaseServer.js";
 import * as dotenv from "dotenv";
 
 dotenv.config();

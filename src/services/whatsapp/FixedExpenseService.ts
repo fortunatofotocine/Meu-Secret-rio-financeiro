@@ -1,5 +1,5 @@
-import { supabase } from '../../lib/supabaseServer';
-import { UserContext, CommandResult } from './types';
+import { supabase } from '../../lib/supabaseServer.js';
+import { UserContext, CommandResult } from './types.js';
 
 export class FixedExpenseService {
   /**

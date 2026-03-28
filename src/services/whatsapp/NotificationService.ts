@@ -1,6 +1,6 @@
-import { supabase } from "../../lib/supabaseServer";
-import { WhatsAppMessagingService } from "./WhatsAppMessagingService";
-import { FinancialSummaryService } from "./FinancialSummaryService";
+import { supabase } from "../../lib/supabaseServer.js";
+import { WhatsAppMessagingService } from "./WhatsAppMessagingService.js";
+import { FinancialSummaryService } from "./FinancialSummaryService.js";
 
 export class NotificationService {
   /**

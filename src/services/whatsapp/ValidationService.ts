@@ -1,4 +1,4 @@
-import { IntentResult, ValidationResult, ValidationStatus, Intent, IntentEntities } from "./types";
+import { IntentResult, ValidationResult, ValidationStatus, Intent, IntentEntities } from "./types.js";
 
 export class ValidationService {
   /**

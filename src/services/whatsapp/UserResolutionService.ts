@@ -1,5 +1,5 @@
-import { supabase } from '../../lib/supabaseServer';
-import { UserContext } from './types';
+import { supabase } from '../../lib/supabaseServer.js';
+import { UserContext } from './types.js';
 
 export class UserResolutionService {
   static async resolve(whatsappNumber: string): Promise<UserContext> {

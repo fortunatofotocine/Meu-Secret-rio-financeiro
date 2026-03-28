@@ -1,4 +1,4 @@
-import { supabase } from "../../lib/supabaseServer";
+import { supabase } from "../../lib/supabaseServer.js";
 
 export interface WeeklyFinancialData {
   totalIncome: number;

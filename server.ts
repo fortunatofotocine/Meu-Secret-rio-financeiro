@@ -1,7 +1,7 @@
 import express from "express";
 import * as dotenv from "dotenv";
-import { WhatsAppWebhookService } from "./src/services/whatsapp/WhatsAppWebhookService";
-import { NotificationService } from "./src/services/whatsapp/NotificationService";
+import { WhatsAppWebhookService } from "./src/services/whatsapp/WhatsAppWebhookService.js";
+import { NotificationService } from "./src/services/whatsapp/NotificationService.js";
 
 dotenv.config();
 
