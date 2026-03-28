@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, type FixedExpense, type Transaction } from '../lib/supabase';
+import { supabase, type FixedExpense, type FixedExpenseInstance, type Transaction } from '../lib/supabase';
 import { Plus, Search, Trash2, Edit2, CreditCard, Calendar, CheckCircle2, CircleDollarSign } from 'lucide-react';
 import { cn } from '../lib/utils';
 import FixedExpenseModal from '../components/FixedExpenseModal';
@@ -8,7 +8,7 @@ import { ptBR } from 'date-fns/locale';
 
 export default function DespesasFixas() {
     const [expenses, setExpenses] = useState<FixedExpense[]>([]);
-    const [paidIds, setPaidIds] = useState<string[]>([]);
+    const [instances, setInstances] = useState<FixedExpenseInstance[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingExpense, setEditingExpense] = useState<FixedExpense | null>(null);
@@ -19,60 +19,105 @@ export default function DespesasFixas() {
 
     async function fetchExpenses() {
         setLoading(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
 
         const now = new Date();
         const start = startOfMonth(now).toISOString();
         const end = endOfMonth(now).toISOString();
+        const startStr = format(startOfMonth(now), 'yyyy-MM-dd');
 
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
+        // 1. Fetch rules (fixed_expenses)
+        const { data: rulesRes, error: rulesErr } = await supabase
+            .from('fixed_expenses')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .eq('active', true);
+        
+        if (rulesErr) throw rulesErr;
+        setExpenses(rulesRes || []);
 
-        // 1. Fetch fixed expenses (Filtered by user)
-        // 2. Fetch transactions for current month with fixed_expense_id (Filtered by user)
-        const [expensesRes, transRes] = await Promise.all([
-            supabase.from('fixed_expenses')
-                .select('*')
-                .eq('user_id', session.user.id)
-                .order('due_day', { ascending: true })
-                .order('created_at', { ascending: true }),
-            supabase.from('transactions')
-                .select('fixed_expense_id')
-                .eq('user_id', session.user.id)
-                .eq('type', 'expense')
-                .not('fixed_expense_id', 'is', null)
-                .gte('date', start)
-                .lte('date', end)
-        ]);
+        // 2. Fetch instances for this month
+        const { data: instRes, error: instErr } = await supabase
+            .from('fixed_expense_instances')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .gte('due_date', start)
+            .lte('due_date', end);
+        
+        if (instErr) throw instErr;
 
-        if (expensesRes.data) setExpenses(expensesRes.data);
-        if (transRes.data) {
-            const ids = transRes.data.map(t => t.fixed_expense_id as string);
-            setPaidIds(ids);
+        // 3. Logic for 'fixed' (monthly) rules that might not have an instance this month
+        const monthlyRules = rulesRes?.filter(r => r.type === 'fixed') || [];
+        const missingInstances = [];
+
+        for (const rule of monthlyRules) {
+            const hasInstance = instRes?.some(i => i.fixed_expense_id === rule.id);
+            if (!hasInstance) {
+                // Determine due date for this month
+                const dueDate = new Date(now.getFullYear(), now.getMonth(), rule.due_day, 12, 0, 0);
+                missingInstances.push({
+                    user_id: session.user.id,
+                    fixed_expense_id: rule.id,
+                    amount: rule.amount,
+                    due_date: format(dueDate, 'yyyy-MM-dd'),
+                    status: 'pending'
+                });
+            }
+        }
+
+        if (missingInstances.length > 0) {
+            const { data: newInsts, error: createErr } = await supabase
+                .from('fixed_expense_instances')
+                .insert(missingInstances)
+                .select();
+            
+            if (!createErr && newInsts) {
+                setInstances([...(instRes || []), ...newInsts]);
+            } else {
+                setInstances(instRes || []);
+            }
+        } else {
+            setInstances(instRes || []);
         }
 
         setLoading(false);
     }
 
-    async function handlePay(expense: FixedExpense) {
-        if (paidIds.includes(expense.id)) return;
+    async function handlePay(instance: FixedExpenseInstance) {
+        if (instance.status === 'paid') return;
 
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
 
+        const rule = expenses.find(e => e.id === instance.fixed_expense_id);
+        if (!rule) return;
+
         const transactionData = {
-            description: `Pagamento: ${expense.description}`,
-            amount: expense.amount,
+            description: `Pagamento: ${rule.description} ${instance.installment_label ? `(${instance.installment_label})` : ''}`,
+            amount: instance.amount,
             type: 'expense',
-            category: expense.category,
+            category: rule.category,
             date: new Date().toISOString(),
-            fixed_expense_id: expense.id,
+            fixed_expense_id: rule.id,
+            fixed_expense_instance_id: instance.id,
             user_id: session.user.id
         };
 
         const { error } = await supabase.from('transactions').insert([transactionData]);
 
         if (!error) {
-            fetchExpenses();
+            // Update instance status locally
+            const { error: updateErr } = await supabase
+                .from('fixed_expense_instances')
+                .update({ status: 'paid', paid_at: new Date().toISOString() })
+                .eq('id', instance.id);
+            
+            if (!updateErr) {
+                fetchExpenses();
+            } else {
+                alert('Pagamento registrado, mas houve erro ao atualizar status do vencimento.');
+            }
         } else {
             alert('Erro ao registrar pagamento.');
         }
@@ -94,9 +139,9 @@ export default function DespesasFixas() {
         setIsModalOpen(true);
     }
 
-    const totalFixed = expenses.reduce((acc, curr) => acc + curr.amount, 0);
-    const totalPaid = expenses
-        .filter(e => paidIds.includes(e.id))
+    const totalMonth = instances.reduce((acc, curr) => acc + curr.amount, 0);
+    const totalPaid = instances
+        .filter(i => i.status === 'paid')
         .reduce((acc, curr) => acc + curr.amount, 0);
 
     return (
@@ -121,7 +166,7 @@ export default function DespesasFixas() {
                     <div className="relative z-10">
                         <p className="text-orange-100 text-sm font-medium mb-1 uppercase tracking-widest font-bold">Total Mensal</p>
                         <h3 className="text-3xl font-black">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalFixed)}
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalMonth)}
                         </h3>
                     </div>
                     <CreditCard className="w-12 h-12 text-white/20 relative z-10" />
@@ -164,11 +209,13 @@ export default function DespesasFixas() {
                                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-zlai-primary mx-auto"></div>
                                     </td>
                                 </tr>
-                            ) : expenses.length > 0 ? (
-                                expenses.map((e) => {
-                                    const isPaid = paidIds.includes(e.id);
+                            ) : instances.length > 0 ? (
+                                instances.map((instance) => {
+                                    const rule = expenses.find(e => e.id === instance.fixed_expense_id);
+                                    if (!rule) return null;
+                                    const isPaid = instance.status === 'paid';
                                     return (
-                                        <tr key={e.id} className="hover:bg-slate-50/50 transition-colors group">
+                                        <tr key={instance.id} className="hover:bg-slate-50/50 transition-colors group">
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className={cn(
@@ -178,16 +225,23 @@ export default function DespesasFixas() {
                                                         <CreditCard className="w-5 h-5" />
                                                     </div>
                                                     <div>
-                                                        <p className="font-bold text-slate-800">{e.description}</p>
-                                                        <p className="text-xs text-slate-400 font-medium">{e.category}</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="font-bold text-slate-800">{rule.description}</p>
+                                                            {instance.installment_label && (
+                                                                <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold uppercase">
+                                                                    {instance.installment_label}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-xs text-slate-400 font-medium">{rule.category}</p>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-sm font-medium text-slate-600">
-                                                Dia {e.due_day}
+                                                {format(new Date(instance.due_date + 'T12:00:00'), 'dd/MM/yyyy')}
                                             </td>
                                             <td className="px-6 py-4 text-sm font-bold text-slate-800">
-                                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(e.amount)}
+                                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(instance.amount)}
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className={cn(
@@ -202,7 +256,7 @@ export default function DespesasFixas() {
                                                 <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     {!isPaid && (
                                                         <button
-                                                            onClick={() => handlePay(e)}
+                                                            onClick={() => handlePay(instance)}
                                                             title="Marcar como pago no financeiro"
                                                             className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-2"
                                                         >
@@ -211,13 +265,13 @@ export default function DespesasFixas() {
                                                         </button>
                                                     )}
                                                     <button
-                                                        onClick={() => handleEdit(e)}
+                                                        onClick={() => handleEdit(rule)}
                                                         className="p-2 text-slate-400 hover:text-zlai-primary hover:bg-orange-50 rounded-lg transition-all"
                                                     >
                                                         <Edit2 className="w-4 h-4" />
                                                     </button>
                                                     <button
-                                                        onClick={() => handleDelete(e.id)}
+                                                        onClick={() => handleDelete(rule.id)}
                                                         className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -244,11 +298,13 @@ export default function DespesasFixas() {
                         <div className="px-6 py-12 text-center">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-zlai-primary mx-auto"></div>
                         </div>
-                    ) : expenses.length > 0 ? (
-                        expenses.map((e) => {
-                            const isPaid = paidIds.includes(e.id);
+                    ) : instances.length > 0 ? (
+                        instances.map((instance) => {
+                            const rule = expenses.find(e => e.id === instance.fixed_expense_id);
+                            if (!rule) return null;
+                            const isPaid = instance.status === 'paid';
                             return (
-                                <div key={e.id} className="p-4 space-y-4">
+                                <div key={instance.id} className="p-4 space-y-4">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className={cn(
@@ -258,19 +314,26 @@ export default function DespesasFixas() {
                                                 <CreditCard className="w-5 h-5" />
                                             </div>
                                             <div>
-                                                <p className="font-bold text-slate-800">{e.description}</p>
-                                                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{e.category}</p>
+                                                <div className="flex items-center gap-2">
+                                                    <p className="font-bold text-slate-800">{rule.description}</p>
+                                                    {instance.installment_label && (
+                                                        <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold uppercase">
+                                                            {instance.installment_label}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{rule.category}</p>
                                             </div>
                                         </div>
                                         <div className="text-right">
                                             <p className="font-bold text-slate-800 whitespace-nowrap">
-                                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(e.amount)}
+                                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(instance.amount)}
                                             </p>
                                             <div className={cn(
                                                 "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",
                                                 isPaid ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
                                             )}>
-                                                {isPaid ? "PAGO" : `DIA ${e.due_day}`}
+                                                {isPaid ? "PAGO" : format(new Date(instance.due_date + 'T12:00:00'), 'dd/MM')}
                                             </div>
                                         </div>
                                     </div>
@@ -278,7 +341,7 @@ export default function DespesasFixas() {
                                     <div className="flex items-center justify-end gap-2 pt-2">
                                         {!isPaid && (
                                             <button
-                                                onClick={() => handlePay(e)}
+                                                onClick={() => handlePay(instance)}
                                                 className="flex-[2] py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-sm active:bg-emerald-700 transition-all"
                                             >
                                                 <CircleDollarSign className="w-4 h-4" />
@@ -286,14 +349,14 @@ export default function DespesasFixas() {
                                             </button>
                                         )}
                                         <button
-                                            onClick={() => handleEdit(e)}
+                                            onClick={() => handleEdit(rule)}
                                             className="flex-1 py-2.5 bg-slate-50 text-slate-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-100 active:bg-orange-50 active:text-zlai-primary active:border-orange-100 transition-all"
                                         >
                                             <Edit2 className="w-3.5 h-3.5" />
                                             Editar
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(e.id)}
+                                            onClick={() => handleDelete(rule.id)}
                                             className="flex-1 py-2.5 bg-slate-50 text-slate-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-100 active:bg-rose-50 active:text-rose-600 active:border-rose-100 transition-all"
                                         >
                                             <Trash2 className="w-3.5 h-3.5" />
