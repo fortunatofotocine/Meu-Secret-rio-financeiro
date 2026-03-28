@@ -1,5 +1,5 @@
-import { supabase } from '../../lib/supabaseServer';
-import { ConversationState, ConversationStatus, Intent, IntentEntities } from './types';
+import { supabase } from '../../lib/supabaseServer.js';
+import { ConversationState, ConversationStatus, Intent, IntentEntities } from './types.js';
 
 export class ConversationStateService {
   static async get(userId: string): Promise<ConversationState> {

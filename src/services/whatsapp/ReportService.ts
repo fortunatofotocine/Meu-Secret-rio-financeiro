@@ -1,5 +1,5 @@
-import { supabase } from '../../lib/supabaseServer';
-import { UserContext, IntentEntities, CommandResult } from './types';
+import { supabase } from '../../lib/supabaseServer.js';
+import { UserContext, IntentEntities, CommandResult } from './types.js';
 
 export class ReportService {
   static async getSummary(user: UserContext, entities: IntentEntities, type: "income" | "expense"): Promise<CommandResult> {

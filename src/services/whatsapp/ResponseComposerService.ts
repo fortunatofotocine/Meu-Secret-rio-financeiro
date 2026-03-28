@@ -1,4 +1,4 @@
-import { CommandResult, UserContext } from "./types";
+import { CommandResult, UserContext } from "./types.js";
 
 export class ResponseComposerService {
   /**
