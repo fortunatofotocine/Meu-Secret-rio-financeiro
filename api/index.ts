@@ -12,7 +12,7 @@ app.use(express.json());
 app.get(["/api/health", "/health", "/api"], (req, res) => {
   res.json({ 
     status: "ok", 
-    version: "2.5.0 - Service Oriented", 
+    version: "2.7.0 - Entry Point Test", 
     timestamp: new Date().toISOString() 
   });
 });
