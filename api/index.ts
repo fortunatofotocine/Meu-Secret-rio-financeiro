@@ -16,7 +16,7 @@ const supabase = createClient(supabaseUrl || "https://placeholder.supabase.co", 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 app.get(["/api/health", "/health", "/api"], (req, res) => {
-  res.json({ status: "ok", version: "2.3.1 - Phase 5.1 Gemini 2.0", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", version: "2.4.0 - Financial Agenda", timestamp: new Date().toISOString() });
 });
 
 app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
