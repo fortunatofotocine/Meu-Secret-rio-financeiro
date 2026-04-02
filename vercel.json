@@ -1,42 +1,10 @@
 {
-    "version": 2,
-    "rewrites": [
-        {
-            "source": "/api/cron/process-reminders",
-            "destination": "/api/cron-reminders"
-        },
-        {
-            "source": "/api/(.*)",
-            "destination": "/api"
-        },
-        {
-            "source": "/privacy",
-            "destination": "/privacy.html"
-        },
-        {
-            "source": "/((?!api/|assets/|favicon|manifest|zlai-logo|.*\\..*).*)",
-            "destination": "/index.html"
-        }
-    ],
-    "crons": [
-        {
-            "path": "/api/cron/process-reminders?secret=zlai_cron_secret",
-            "schedule": "* * * * *"
-        },
-        {
-            "path": "/api/whatsapp/notifications?secret=zlai_cron_secret",
-            "schedule": "0 11 * * *"
-        }
-    ],
-    "headers": [
-        {
-            "source": "/index.html",
-            "headers": [
-                {
-                    "key": "Cache-Control",
-                    "value": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
-                }
-            ]
-        }
-    ]
+  "rewrites": [
+    { "source": "/api/whatsapp/webhook", "destination": "/api/index.ts" },
+    { "source": "/whatsapp/webhook", "destination": "/api/index.ts" },
+    { "source": "/api/health", "destination": "/api/index.ts" },
+    { "source": "/api/cron/process-reminders", "destination": "/api/index.ts" },
+    { "source": "/api/(.*)", "destination": "/api/index.ts" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
