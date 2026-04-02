@@ -9,9 +9,10 @@ interface TransactionModalProps {
   onClose: () => void;
   onSave: () => void;
   transaction?: Transaction | null;
+  defaultType?: 'income' | 'expense';
 }
 
-export default function TransactionModal({ isOpen, onClose, onSave, transaction }: TransactionModalProps) {
+export default function TransactionModal({ isOpen, onClose, onSave, transaction, defaultType }: TransactionModalProps) {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'income' | 'expense'>('expense');
@@ -46,7 +47,7 @@ export default function TransactionModal({ isOpen, onClose, onSave, transaction 
     } else {
       setDescription('');
       setAmount('');
-      setType('expense');
+      setType(defaultType || 'expense');
       setCategory('');
       setDate(new Date().toISOString().split('T')[0]);
     }
@@ -70,7 +71,7 @@ export default function TransactionModal({ isOpen, onClose, onSave, transaction 
       amount: parseFloat(amount),
       type,
       category,
-      date: new Date(date).toISOString(),
+      date: new Date(`${date}T12:00:00Z`).toISOString(),
       user_id: session.user.id
     };
 

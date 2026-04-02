@@ -259,7 +259,8 @@ export class NotificationService {
     const lastSun = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
     
     const startStr = lastMon.toISOString().split("T")[0];
-    const endStr = lastSun.toISOString().split("T")[0];
+    const nextDay = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
+    const endStr = nextDay.toISOString().split("T")[0];
 
     const summary = await FinancialSummaryService.getWeeklyData(userId, startStr, endStr);
     const bills = await FinancialSummaryService.getBillsStatus(userId);

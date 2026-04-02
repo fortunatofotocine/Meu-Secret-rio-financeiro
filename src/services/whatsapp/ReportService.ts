@@ -25,8 +25,8 @@ export class ReportService {
 
     return {
       success: true,
-      message: `${type === "income" ? "Receitas" : "Gastos"} em ${periodText}: R$ ${total.toFixed(2)}.`,
-      data: { total, period: periodText }
+      message: "",
+      data: { total, period: periodText, type }
     };
   }
 

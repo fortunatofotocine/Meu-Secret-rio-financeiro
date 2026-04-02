@@ -1,4 +1,4 @@
-export type WhatsAppMessageType = "text" | "audio";
+export type WhatsAppMessageType = "text" | "audio" | "image" | "interactive";
 
 export interface WhatsAppMessage {
   id: string;
@@ -8,9 +8,13 @@ export interface WhatsAppMessage {
   mediaId?: string;
   timestamp: string;
   phone_number_id: string;
+  button_reply?: {
+    id: string;
+    title: string;
+  };
 }
 
-export type ConversationStatus = "idle" | "awaiting_confirmation" | "incomplete_data";
+export type ConversationStatus = "idle" | "awaiting_confirmation" | "incomplete_data" | "awaiting_edit";
 
 export interface ConversationState {
   userId: string;
@@ -26,12 +30,17 @@ export interface UserContext {
   profileName: string;
   whatsappNumber: string;
   isRegistered: boolean;
+  isPending?: boolean;
+  trialEndsAt?: string;
+  subscriptionStatus?: string;
   state: ConversationState;
 }
 
 export type Intent =
   | "registrar_gasto"
   | "registrar_receita"
+  | "registrar_transacao"
+  | "consultar_gastos_periodo"
   | "consultar_gastos_periodo"
   | "consultar_receitas_periodo"
   | "listar_contas_pendentes"
@@ -40,19 +49,28 @@ export type Intent =
   | "listar_contas_atrasadas"
   | "marcar_conta_paga"
   | "consultar_resumo_semana"
+  | "registrar_evento"
+  | "registrar_lembrete"
+  | "cancelar_lembrete"
+  | "listar_lembretes"
   | "confirmar"
   | "cancelar"
   | "ajuda"
   | "onboarding"
+  | "ativar_conta"
   | "fallback";
 
 export interface IntentEntities {
   amount?: number;
   category?: string;
   description?: string;
+  event_title?: string;
   date_reference?: string;
+  date?: string;
+  time?: string;
   start_date?: string;
   end_date?: string;
+  receipt_url?: string;
 }
 
 export interface IntentResult {

@@ -8,6 +8,9 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SU
 
 if (!supabaseUrl || !supabaseKey) {
   console.error("Supabase environment variables missing in server-side context.");
+} else {
+  const keyType = supabaseKey === process.env.SUPABASE_SERVICE_ROLE_KEY ? "SERVICE_ROLE" : "ANON/OTHER";
+  console.log(`[Supabase] Initializing with ${keyType} key.`);
 }
 
 export const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseKey || 'placeholder');

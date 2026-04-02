@@ -6,14 +6,27 @@ export class UserResolutionService {
     const normalized = this.normalizePhone(whatsappNumber);
     const lastDigits = normalized.slice(-8);
 
-    const { data: profile, error } = await supabase
+    // 1. Check confirmed or pending users
+    // Try confirmed first
+    let { data: profile } = await supabase
       .from('profiles')
-      .select('id, full_name')
+      .select('id, full_name, trial_ends_at, subscription_status, whatsapp_number, pending_whatsapp')
       .ilike('whatsapp_number', `%${lastDigits}`)
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (error || !profile) {
+    // If not found, try pending
+    if (!profile) {
+      const { data: pendingProfile } = await supabase
+        .from('profiles')
+        .select('id, full_name, trial_ends_at, subscription_status, whatsapp_number, pending_whatsapp')
+        .ilike('pending_whatsapp', `%${lastDigits}`)
+        .limit(1)
+        .maybeSingle();
+      profile = pendingProfile;
+    }
+
+    if (!profile) {
       return {
         userId: '',
         profileName: 'Visitante',
@@ -31,20 +44,18 @@ export class UserResolutionService {
       userId: profile.id,
       profileName: profile.full_name || 'Usuário',
       whatsappNumber: normalized,
-      isRegistered: true,
-      state: {
-        userId: profile.id,
-        status: 'idle',
-        lastInteraction: new Date().toISOString()
-      }
+      isRegistered: !!profile.whatsapp_number,
+      isPending: !!profile.pending_whatsapp,
+      trialEndsAt: profile.trial_ends_at,
+      subscriptionStatus: profile.subscription_status,
+      state: undefined // Force fetch from DB in WebhookService
     };
   }
 
   private static normalizePhone(phone: string): string {
     let cleaned = phone.replace(/\D/g, '');
-    if (cleaned.startsWith('55') && cleaned.length > 10) {
-      cleaned = cleaned.substring(2);
-    }
+    // If it's a Brazilian number (starts with 55), keep it as is.
+    // The .ilike('%' + last8) match in resolve() handles the rest.
     return cleaned;
   }
 }

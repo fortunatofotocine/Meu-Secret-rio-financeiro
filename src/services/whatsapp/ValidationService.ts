@@ -7,8 +7,8 @@ export class ValidationService {
   static validate(classification: IntentResult): ValidationResult {
     const { intent, confidence, entities } = classification;
 
-    // 1. Low Confidence Fallback (< 0.5)
-    if (confidence < 0.5) {
+    // 1. Confidence Thresholds
+    if (confidence < 0.6) {
       return {
         status: "FALLBACK",
         missingFields: [],
@@ -16,50 +16,54 @@ export class ValidationService {
       };
     }
 
-    // 2. Mandatory Field Check
-    const mandatoryFields: Record<string, (keyof IntentEntities)[]> = {
-      "registrar_gasto": ["amount"],
-      "registrar_receita": ["amount"],
-    };
+    if (confidence <= 0.85) {
+      return {
+        status: "NEEDS_CONFIRMATION",
+        missingFields: [],
+        message: this.getConfirmationMessage(intent, entities)
+      };
+    }
 
-    const required = mandatoryFields[intent as string] || [];
-    const missing = required.filter(f => !entities[f]);
+    // 2. Intent-Specific Mandatory Fields
+    const missingFields: string[] = [];
 
-    if (missing.length > 0) {
-      const fieldName = missing[0] === "amount" ? "valor" : "campo";
+    if (intent === "registrar_gasto" || intent === "registrar_receita") {
+      if (!entities.amount) missingFields.push("o valor");
+      if (!entities.description) missingFields.push("a descrição");
+    }
+
+    if (intent === "registrar_evento") {
+      if (!entities.event_title) missingFields.push("o que é o compromisso");
+      if (!entities.date_reference) missingFields.push("o dia (data)");
+      if (!entities.time) missingFields.push("o horário");
+    }
+
+    if (missingFields.length > 0) {
       return {
         status: "INCOMPLETE",
-        missingFields: missing as string[],
-        message: `Entendi que você quer ${intent.replace('_', ' ')}, mas faltou dizer o ${fieldName}.`
+        missingFields,
+        message: `🤔 *Falta informação*\n\nEntendi que você quer registrar isso, mas falta me dizer: *${missingFields.join(" e ")}*.\n\nPode completar por favor?`
       };
     }
 
-    // 3. Confidence Thresholds for Direct Execution vs Confirmation
-    if (confidence >= 0.8) {
-      return {
-        status: "READY",
-        missingFields: []
-      };
-    }
-
-    // 4. Manual Confirmation (0.5 - 0.8)
-    return {
-      status: "NEEDS_CONFIRMATION",
-      missingFields: [],
-      message: this.getConfirmationMessage(intent, entities)
-    };
+    return { status: "READY", missingFields: [] };
   }
 
   private static getConfirmationMessage(intent: Intent, entities: IntentEntities): string {
-    const { amount, category, date_reference } = entities;
-    
-    if (intent === "registrar_gasto") {
-      return `Confirmar registro de gasto de R$ ${amount?.toFixed(2)}${category ? ` em ${category}` : ""}? (Diga 'sim' ou 'não')`;
-    }
-    if (intent === "registrar_receita") {
-      return `Confirmar registro de receita de R$ ${amount?.toFixed(2)}? (Diga 'sim' ou 'não')`;
+    const dateStr = entities.date_reference || "hoje";
+    const timeStr = entities.time || "";
+
+    let details = "";
+    if (intent === "registrar_gasto" || intent === "registrar_receita") {
+      details = `💰 *Valor:* R$ ${entities.amount?.toFixed(2) || "?"}\n` +
+                `📝 *Descrição:* ${entities.description || "?"}`;
+    } else if (intent === "registrar_evento") {
+      details = `📅 *Evento:* ${entities.event_title || "?"}\n` +
+                `🗓️ *Data:* ${dateStr}${timeStr ? ` às ${timeStr}` : ""}`;
     }
 
-    return "Posso prosseguir com esta ação? (Diga 'sim' ou 'não')";
+    return `🤔 *Confirmar Registro?*\n\n` +
+           `Parece que você quer registrar:\n${details}\n\n` +
+           `*Deseja confirmar?* (Sim/Não)`;
   }
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp, TrendingDown, Wallet, Calendar, ArrowUpRight, ArrowDownRight, Edit3, Check, X, AlertCircle, Target } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Calendar, ArrowUpRight, ArrowDownRight, Edit3, Check, X, AlertCircle, Target, MessageSquare } from 'lucide-react';
 import { supabase, type Transaction, type Event, type Profile } from '../lib/supabase';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import CategoryDetailsModal from '../components/CategoryDetailsModal';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import SmartGreeting from '../components/SmartGreeting';
 
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -121,14 +122,50 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
+    <div className="space-y-6 lg:space-y-8 max-w-7xl mx-auto">
+      {/* Smart Greeting Integration */}
+      <SmartGreeting profile={profile} transactions={transactions} />
+
+      {/* WhatsApp Activation CTA (Only if not connected) */}
+      {!profile?.whatsapp_number && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-[32px] p-6 lg:p-8 flex flex-col lg:flex-row items-center justify-between gap-6 overflow-hidden relative group"
+        >
+          <div className="absolute top-0 right-0 w-64 h-64 bg-zlai-primary opacity-5 blur-[120px] -mr-32 -mt-32" />
+          
+          <div className="flex flex-col lg:flex-row items-center gap-6 relative z-10 text-center lg:text-left">
+            <div className="w-16 h-16 lg:w-20 lg:h-20 bg-emerald-500 rounded-3xl flex items-center justify-center shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">
+              <MessageSquare className="w-8 h-8 lg:w-10 lg:h-10 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl lg:text-2xl font-black text-white tracking-tight leading-tight">
+                USE A ZLAI NO SEU <span className="text-zlai-primary">WHATSAPP</span>
+              </h2>
+              <p className="text-slate-400 text-sm font-medium mt-1">Lançamentos instantâneos por voz ou texto. Simples e rápido.</p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => navigate('/activate')}
+            className="group relative h-14 px-8 bg-zlai-primary text-white font-black uppercase tracking-widest text-sm rounded-2xl shadow-xl shadow-orange-500/30 hover:shadow-orange-500/40 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 transition-all whitespace-nowrap"
+          >
+            <div className="flex items-center gap-3">
+              <span>Ativar WhatsApp</span>
+              <ArrowUpRight className="w-5 h-5 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+            </div>
+          </button>
+        </motion.div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
+        <div className="hidden lg:block">
           <h1 className="text-2xl font-bold text-zlai-dark tracking-tighter">ZLAI Intelligence</h1>
           <p className="text-slate-500">Bem-vindo ao seu secretário financeiro pessoal.</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="bg-white p-1 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-1">
+          <div className="bg-white p-1 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-1 w-full lg:w-auto">
             <button
               onClick={handlePrevMonth}
               className="p-2 hover:bg-orange-50 rounded-xl text-slate-400 hover:text-zlai-primary transition-all"
@@ -136,9 +173,9 @@ export default function Dashboard() {
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <div className="px-4 py-2 flex items-center gap-2 min-w-[140px] justify-center">
-              <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center">
-                <Target className="w-6 h-6 text-zlai-primary" />
+            <div className="px-4 py-2 flex items-center gap-2 flex-1 lg:min-w-[140px] justify-center">
+              <div className="w-8 h-8 lg:w-10 lg:h-10 bg-orange-50 rounded-xl lg:rounded-2xl flex items-center justify-center shrink-0">
+                <Target className="w-4 h-4 lg:w-5 lg:h-5 text-zlai-primary" />
               </div>
               <span className="text-sm font-bold text-slate-700 capitalize">
                 {format(selectedDate, "MMMM yyyy", { locale: ptBR })}

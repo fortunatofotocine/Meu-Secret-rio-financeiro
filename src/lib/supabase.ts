@@ -88,4 +88,19 @@ export type Profile = {
   whatsapp_number: string;
   full_name: string;
   monthly_income: number;
+  trial_ends_at?: string;
+  subscription_status?: 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired';
+  subscription_ends_at?: string;
+  role: 'user' | 'admin';
+  is_blocked: boolean;
+  deleted_at?: string;
+};
+
+export type AdminLog = {
+  id: string;
+  admin_id: string;
+  action: 'block' | 'unblock' | 'reset_trial' | 'manual_activation' | 'soft_delete' | 'restore' | 'change_role';
+  target_user_id: string;
+  details: any;
+  created_at: string;
 };

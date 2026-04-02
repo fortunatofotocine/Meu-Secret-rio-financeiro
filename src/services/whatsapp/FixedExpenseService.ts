@@ -39,14 +39,20 @@ export class FixedExpenseService {
     const { data, error } = await query;
     if (error) throw error;
 
-    return data.map(item => ({
-      id: item.id,
-      description: (item.fixed_expenses as any)?.description || "Sem descrição",
-      amount: item.amount,
-      due_date: item.due_date,
-      status: item.status,
-      label: item.installment_label
-    }));
+    return (data || []).map(item => {
+      const fe = (item as any).fixed_expenses || (item as any).fixed_expense;
+      const detail = Array.isArray(fe) ? fe[0] : fe;
+      const description = detail?.description;
+
+      return {
+        id: item.id,
+        description: description || "Sem descrição",
+        amount: item.amount,
+        due_date: item.due_date,
+        status: item.status,
+        label: item.installment_label
+      };
+    });
   }
 
   /**

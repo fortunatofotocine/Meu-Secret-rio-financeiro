@@ -2,7 +2,7 @@ import { supabase } from '../../lib/supabaseServer.js';
 import { ConversationState, ConversationStatus, Intent, IntentEntities } from './types.js';
 
 export class ConversationStateService {
-  static async get(userId: string): Promise<ConversationState> {
+  static async get(userId: string): Promise<ConversationState | null> {
     const { data, error } = await supabase
       .from('conversation_state')
       .select('*')
@@ -10,11 +10,17 @@ export class ConversationStateService {
       .single();
 
     if (error || !data) {
-      return {
-        userId,
-        status: 'idle',
-        lastInteraction: new Date().toISOString(),
-      };
+      return null;
+    }
+
+    // 1-hour Expiration Policy
+    const lastUpdate = new Date(data.updated_at).getTime();
+    const now = new Date().getTime();
+    const oneHour = 60 * 60 * 1000;
+
+    if (now - lastUpdate > oneHour) {
+      console.log(`[ConversationState] State for ${userId} expired (> 1h).`);
+      return null;
     }
 
     return {
@@ -32,9 +38,9 @@ export class ConversationStateService {
       updated_at: new Date().toISOString(),
     };
 
-    if (state.status) updateData.status = state.status;
-    if (state.pendingIntent) updateData.pending_intent = state.pendingIntent;
-    if (state.pendingEntities) updateData.pending_entities = state.pendingEntities;
+    updateData.status = state.status || 'idle';
+    updateData.pending_intent = state.pendingIntent || null;
+    updateData.pending_entities = state.pendingEntities || null;
 
     const { error } = await supabase
       .from('conversation_state')

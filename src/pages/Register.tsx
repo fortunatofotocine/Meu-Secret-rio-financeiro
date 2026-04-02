@@ -38,9 +38,10 @@ const Register: React.FC = () => {
             email,
             password,
             options: {
+                emailRedirectTo: `${window.location.origin}/dashboard`,
                 data: {
                     full_name: fullName,
-                    whatsapp_number: whatsapp.replace(/\D/g, ''),
+                    pending_whatsapp: whatsapp.replace(/\D/g, ''),
                 }
             }
         });
@@ -52,8 +53,8 @@ const Register: React.FC = () => {
         }
 
         if (authData.user) {
-            // Sucesso: O perfil é criado automaticamente via TRIGGER no banco de dados
-            navigate('/');
+            // Sucesso: Redireciona para o Dashboard (Não mais obrigatório ativar WhatsApp na hora)
+            navigate('/dashboard');
         }
     };
 

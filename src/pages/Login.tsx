@@ -24,7 +24,23 @@ const Login: React.FC = () => {
             setError(authError.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : authError.message);
             setLoading(false);
         } else {
-            navigate('/');
+            // Fetch profile to check role
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', session.user.id)
+                    .single();
+                
+                if (profile?.role === 'admin') {
+                    navigate('/admin');
+                } else {
+                    navigate('/');
+                }
+            } else {
+                navigate('/');
+            }
         }
     };
 

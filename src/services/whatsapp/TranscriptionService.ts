@@ -4,7 +4,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "models/gemini-2.5-flash" }, { apiVersion: "v1" });
 
 export class TranscriptionService {
   /**
@@ -24,19 +24,19 @@ export class TranscriptionService {
             mimeType: media.mimeType
           }
         },
-        `Sua tarefa é transcrever este áudio do WhatsApp para um sistema financeiro.
-         REGRAS CRÍTICAS:
-         1. Transcreva números e valores monetários como números (Ex: "cinquenta e dois reais" -> "52 reais").
-         2. Transcreva datas e períodos claramente (Ex: "ontem", "semana passada", "dia dez").
-         3. Mantenha a fidelidade total às palavras ditas, mas normalize os números.
-         4. Retorne apenas o texto transcrito, sem introduções ou explicações.`
+        `Sua tarefa é transcrever este áudio do WhatsApp com absoluta fidelidade.
+         REGRAS:
+         1. Transcreva EXATAMENTE o que foi dito, palavra por palavra.
+         2. Não tente normalizar números ou datas; mantenha a forma falada (Ex: "cinquenta reais" se foi o que a pessoa disse).
+         3. Não adicione pontuação extra que não seja inferida pelo tom de voz.
+         4. Retorne apenas o texto transcrito, puro, sem comentários.`
       ]);
 
       const text = result.response.text().trim();
       return text;
-    } catch (err) {
-      console.error("Erro na transcrição via Gemini:", err);
-      throw new Error("Erro ao transcrever áudio.");
+    } catch (error: any) {
+      console.error("[Transcription] Error:", error);
+      throw new Error(`Erro ao transcrever áudio: ${error.message || String(error)}`);
     }
   }
 
