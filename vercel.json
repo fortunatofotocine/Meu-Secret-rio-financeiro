@@ -1,10 +1,7 @@
 {
   "rewrites": [
-    { "source": "/api/whatsapp/webhook", "destination": "/api/index.ts" },
-    { "source": "/whatsapp/webhook", "destination": "/api/index.ts" },
-    { "source": "/api/health", "destination": "/api/index.ts" },
-    { "source": "/api/cron/process-reminders", "destination": "/api/index.ts" },
     { "source": "/api/(.*)", "destination": "/api/index.ts" },
+    { "source": "/whatsapp/webhook", "destination": "/api/index.ts" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
