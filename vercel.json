@@ -1,7 +1,7 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.ts" },
-    { "source": "/whatsapp/webhook", "destination": "/api/index.ts" },
+    { "source": "/api/(.*)", "destination": "/api/server.ts" },
+    { "source": "/whatsapp/webhook", "destination": "/api/server.ts" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
