@@ -12,8 +12,9 @@ export class ResponseComposerService {
   }
 
   static composeWithMetadata(user: UserContext, result: CommandResult, intent: Intent): ResponseMetadata {
+    const version = " [v3.1.0]";
     if (!result.success) {
-      return { text: `❌ *Erro no processamento*\n\n${result.message}` };
+      return { text: `❌ *Erro no processamento*\n\n${result.message}${version}` };
     }
 
     const data = result.data || {};
@@ -25,7 +26,7 @@ export class ResponseComposerService {
     
     if (isExplicitMessage) {
       return { 
-        text: result.message,
+        text: result.message + version,
         stateToSet: data.stateToSet
       };
     }
@@ -34,7 +35,7 @@ export class ResponseComposerService {
       case "registrar_gasto":
       case "registrar_receita":
         return {
-          text: this.formatTransaction(data.transaction),
+          text: this.formatTransaction(data.transaction) + version,
           buttons: [
             { id: "confirmar_registro", title: "✅ Tudo certo" },
             { id: "editar_registro", title: "✏️ Editar Registro" }
@@ -48,13 +49,13 @@ export class ResponseComposerService {
       
       case "consultar_gastos_periodo":
       case "consultar_receitas_periodo":
-        return { text: this.formatReport(data) };
+        return { text: this.formatReport(data) + version };
 
       case "listar_contas_pendentes":
       case "listar_contas_hoje":
       case "listar_contas_semana":
       case "listar_contas_atrasadas":
-        return { text: this.formatBillList(data.bills || [], data.bills?.length || 0, data.filter) };
+        return { text: this.formatBillList(data.bills || [], data.bills?.length || 0, data.filter) + version };
 
       case "marcar_conta_paga":
         if (data.candidate) {
@@ -63,17 +64,17 @@ export class ResponseComposerService {
         return { text: `✅ *Pagamento registrado*\n\nConta marcada como paga com sucesso!` };
 
       case "registrar_evento":
-        return { text: this.formatEvent(data.event) };
+        return { text: this.formatEvent(data.event) + version };
 
       case "consultar_resumo_semana":
-        return { text: this.formatWeeklySummary(data.summary, data.bills) };
+        return { text: this.formatWeeklySummary(data.summary, data.bills) + version };
 
       case "ajuda":
-        return { text: this.formatHelp() };
+        return { text: this.formatHelp() + version };
 
       default:
         return { 
-          text: result.message || "✅ *Ação concluída*\n\nProcessado com sucesso.",
+          text: (result.message || "✅ *Ação concluída*\n\nProcessado com sucesso.") + version,
           stateToSet: data.stateToSet
         };
     }
