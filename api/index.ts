@@ -1,17 +1,14 @@
 import express from "express";
 import { WhatsAppWebhookService } from "../src/services/whatsapp/WhatsAppWebhookService.js";
-import { ReminderService } from "../src/services/whatsapp/ReminderService.js";
 
 const app = express();
 app.use(express.json());
-
-const webhookService = new WhatsAppWebhookService();
 
 // Health Check
 app.get(["/api/health", "/health", "/api"], (req, res) => {
   res.json({ 
     status: "ok", 
-    version: "2.8.9 - Force API Priority", 
+    version: "2.8.9 - Final Handshake", 
     timestamp: new Date().toISOString() 
   });
 });
@@ -34,7 +31,8 @@ app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
 // WhatsApp Webhook (POST)
 app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
   try {
-    await webhookService.handleWebhook(req.body);
+    // Correct call: use the static handle method
+    await WhatsAppWebhookService.handle(req.body);
     res.status(200).send("EVENT_RECEIVED");
   } catch (error) {
     console.error("[Webhook Error]", error);
@@ -61,4 +59,4 @@ app.post("/api/notifications/send", async (req, res) => {
 });
 
 export default app;
-// v2.8.9 - Final Stabilized Version
+// v2.8.9 - Final Handshake Fix
