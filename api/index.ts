@@ -9,30 +9,24 @@ app.use(express.json());
 app.get(["/api/health", "/health", "/api"], (req, res) => {
   res.json({ 
     status: "ok", 
-    version: "2.8.9 - Final Handshake (Integrated Cron)", 
+    version: "4.1.0 [parser-v4.1] - UNIFIED PARSING ACTIVE", 
     timestamp: new Date().toISOString() 
   });
 });
 
 // CRON ENDPOINT: /api/cron-reminders
 app.get("/api/cron-reminders", async (req, res) => {
-  // 1. Security Check
   const secret = req.query["secret"];
   const validSecret = process.env.WHATSAPP_VERIFY_TOKEN || "zlai_cron_secret";
-
   if (secret !== validSecret && secret !== "zlai_cron_secret") {
     return res.status(401).json({ error: "Unauthorized" });
   }
-
   try {
     const result = await ReminderWorkerService.run();
     return res.status(200).json(result);
   } catch (error: any) {
     console.error("[Integrated Cron Error]", error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message || "Internal Server Error" 
-    });
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -41,7 +35,6 @@ app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-
   if (mode && token) {
     if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
       console.log("[Webhook] Verified successfully");
@@ -54,7 +47,6 @@ app.get(["/api/whatsapp/webhook", "/whatsapp/webhook"], (req, res) => {
 // WhatsApp Webhook (POST)
 app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
   try {
-    // Correct call: use the static handle method
     await WhatsAppWebhookService.handle(req.body);
     res.status(200).send("EVENT_RECEIVED");
   } catch (error) {
@@ -63,23 +55,5 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
   }
 });
 
-// Endpoint for manual notifications (API)
-app.post("/api/notifications/send", async (req, res) => {
-  try {
-    const { userId, message } = req.body;
-    if (!userId || !message) {
-      return res.status(400).json({ success: false, error: "Missing parameters" });
-    }
-    
-    // Simple notification logic
-    console.log(`[Notification] Sending to ${userId}: ${message}`);
-    
-    res.status(200).json({ success: true });
-  } catch (error: any) {
-    console.error("[API Notifications Error]", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 export default app;
-// v2.8.9 - Final Handshake Fix
+// v4.1.0 - UNIFIED PARSING FIX
