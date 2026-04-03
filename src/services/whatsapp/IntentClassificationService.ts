@@ -59,29 +59,36 @@ export class IntentClassificationService {
     }
  
     // --- TRANSAÇÕES RÁPIDAS (EX: "GASTEI 50...") ---
-    // Matches: 50 | 50,00 | 50.00 | 1.500,00 | 1,500.00
     // Matches: 50 | 50,00 | 50.00 | 1.500,00 | 1,500.00 | R$ 15,70
+    console.log(`[parser-v4] raw_text: "${text}"`);
     const amountMatch = cleanText.match(/(?:gastei|recebi|paguei|vendi|ganhei|foi|gastamos)\s*(?:r\$?\s?)?\s*(\d+(?:[.,]\d+)*)/i);
+    
     if (amountMatch) {
+        console.log(`[parser-v4] extracted_amount: "${amountMatch[1]}"`);
         const intent = (cleanText.includes("recebi") || cleanText.includes("ganhei") || cleanText.includes("vendi")) ? "registrar_receita" : "registrar_gasto";
         
         let amountRaw = amountMatch[1];
-        // Handle BR format: 1.500,00 -> 1500.00
+        
+        // ROBUST BR PARSING LOGIC [parser-v4]
+        // 1. Remove any thousand separators (dots followed by 3 digits BEFORE a comma)
+        // 2. Identify if it's BR format (comma as decimal) or US (dot as decimal)
+        
         if (amountRaw.includes(',') && amountRaw.includes('.')) {
-          // If both exist, assume dot is thousands and comma is decimal (BR) 
-          // or comma is thousands and dot is decimal (US).
-          // For safety, if comma is last, it's decimal.
           if (amountRaw.lastIndexOf(',') > amountRaw.lastIndexOf('.')) {
+            // BR Format: 1.500,00 -> 1500.00
             amountRaw = amountRaw.replace(/\./g, '').replace(',', '.');
           } else {
+            // US Format: 1,500.00 -> 1500.00
             amountRaw = amountRaw.replace(/,/g, '');
           }
         } else if (amountRaw.includes(',')) {
-          // Only comma: assumed as decimal separator (15,70 -> 15.70)
+          // Pure BR Format: 15,70 -> 15.70
           amountRaw = amountRaw.replace(',', '.');
         }
 
         const amount = parseFloat(amountRaw);
+        console.log(`[parser-v4] normalized_amount: ${amount}`);
+
         const description = rawText.replace(amountMatch[0], "")
             .replace(/\b(zlai|zelai|zela|zelá|zlâ|zé lá|ze la|zila|zelly|zeli|zé|ze|no|na|com|de|da|do|um|uma|reais|ai|oi|ola|olá|anota|registra|por\s+favor|eu|me|meu|minha)\b/gi, "")
             .replace(/[,.-]/g, "")

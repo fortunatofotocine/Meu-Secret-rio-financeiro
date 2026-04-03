@@ -293,6 +293,7 @@ export class FinancialCommandService {
       : new Date().toISOString();
 
     const cleanDescription = NormalizationService.cleanDescription(description || `Registro via WhatsApp`);
+    console.log(`[parser-v4] saved_amount: ${amount} (type: ${type})`);
     const { error } = await supabase.from("transactions").insert({
       user_id: user.userId,
       amount, type,

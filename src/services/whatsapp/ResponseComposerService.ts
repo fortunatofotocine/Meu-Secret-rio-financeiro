@@ -12,7 +12,7 @@ export class ResponseComposerService {
   }
 
   static composeWithMetadata(user: UserContext, result: CommandResult, intent: Intent): ResponseMetadata {
-    const version = " [v3.1.0]";
+    const version = " [parser-v4]";
     if (!result.success) {
       return { text: `❌ *Erro no processamento*\n\n${result.message}${version}` };
     }
