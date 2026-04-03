@@ -59,10 +59,28 @@ export class IntentClassificationService {
     }
  
     // --- TRANSAÇÕES RÁPIDAS (EX: "GASTEI 50...") ---
-    const amountMatch = cleanText.match(/(?:gastei|recebi|paguei|vendi|ganhei)\s+(?:r\$?\s?)?(\d+[,.]?\d*)/i);
+    // Matches: 50 | 50,00 | 50.00 | 1.500,00 | 1,500.00
+    const amountMatch = cleanText.match(/(?:gastei|recebi|paguei|vendi|ganhei|foi|gastamos)\s+(?:r\$?\s?)?(\d+(?:[.,]\d+)*)/i);
     if (amountMatch) {
         const intent = (cleanText.includes("recebi") || cleanText.includes("ganhei") || cleanText.includes("vendi")) ? "registrar_receita" : "registrar_gasto";
-        const amount = parseFloat(amountMatch[1].replace(',', '.'));
+        
+        let amountRaw = amountMatch[1];
+        // Handle BR format: 1.500,00 -> 1500.00
+        if (amountRaw.includes(',') && amountRaw.includes('.')) {
+          // If both exist, assume dot is thousands and comma is decimal (BR) 
+          // or comma is thousands and dot is decimal (US).
+          // For safety, if comma is last, it's decimal.
+          if (amountRaw.lastIndexOf(',') > amountRaw.lastIndexOf('.')) {
+            amountRaw = amountRaw.replace(/\./g, '').replace(',', '.');
+          } else {
+            amountRaw = amountRaw.replace(/,/g, '');
+          }
+        } else if (amountRaw.includes(',')) {
+          // Only comma: assumed as decimal separator (15,70 -> 15.70)
+          amountRaw = amountRaw.replace(',', '.');
+        }
+
+        const amount = parseFloat(amountRaw);
         const description = rawText.replace(amountMatch[0], "")
             .replace(/\b(zlai|zelai|zela|zelá|zlâ|zé lá|ze la|zila|zelly|zeli|zé|ze|no|na|com|de|da|do|um|uma|reais|ai|oi|ola|olá|anota|registra|por\s+favor|eu|me|meu|minha)\b/gi, "")
             .replace(/[,.-]/g, "")

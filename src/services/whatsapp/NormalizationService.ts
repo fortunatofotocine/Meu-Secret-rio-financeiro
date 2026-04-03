@@ -10,7 +10,7 @@ export class NormalizationService {
 
     // 1. Basic Cleaning (Including commas and colons which break word boundaries)
     normalized = normalized.replace(/\s+/g, " "); // collapse spaces
-    normalized = normalized.replace(/[?.,!:]/g, ""); // remove simple punctuation including comma and colon
+    normalized = normalized.replace(/[?!:]/g, ""); // remove simple punctuation, PRESERVING dots and commas for numbers
 
     // 1.5. Greedy Prefix Cleaning (Removing greetings, bot names, and command preambles)
     const aggressivePreamble = /^(oi|ola|olá|bom dia|boa tarde|boa noite|e ai|e aí|eae|eai|opa|anota|anote|registra|registre|registra ai|anota ai|por favor)(\s+|$)/gi;
