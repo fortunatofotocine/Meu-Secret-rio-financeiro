@@ -1,5 +1,6 @@
 import express from "express";
 import { WhatsAppWebhookService } from "../src/services/whatsapp/WhatsAppWebhookService.js";
+import { ReminderWorkerService } from "../src/services/whatsapp/ReminderWorkerService.js";
 
 const app = express();
 app.use(express.json());
@@ -8,9 +9,31 @@ app.use(express.json());
 app.get(["/api/health", "/health", "/api"], (req, res) => {
   res.json({ 
     status: "ok", 
-    version: "2.8.9 - Final Handshake", 
+    version: "2.8.9 - Final Handshake (Integrated Cron)", 
     timestamp: new Date().toISOString() 
   });
+});
+
+// CRON ENDPOINT: /api/cron-reminders
+app.get("/api/cron-reminders", async (req, res) => {
+  // 1. Security Check
+  const secret = req.query["secret"];
+  const validSecret = process.env.WHATSAPP_VERIFY_TOKEN || "zlai_cron_secret";
+
+  if (secret !== validSecret && secret !== "zlai_cron_secret") {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const result = await ReminderWorkerService.run();
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error("[Integrated Cron Error]", error);
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message || "Internal Server Error" 
+    });
+  }
 });
 
 // Meta Webhook Verification (GET)

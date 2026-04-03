@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/cron-reminders", "destination": "/api/cron-reminders.ts" },
+    { "source": "/api/cron-reminders", "destination": "/api/index.ts" },
     { "source": "/api/whatsapp/webhook", "destination": "/api/index.ts" },
     { "source": "/api/(.*)", "destination": "/api/index.ts" },
     { "source": "/whatsapp/webhook", "destination": "/api/index.ts" },
@@ -9,7 +9,7 @@
   "crons": [
     {
       "path": "/api/cron-reminders",
-      "schedule": "0 0 * * *"
+      "schedule": "* * * * *"
     }
   ]
 }
