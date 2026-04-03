@@ -20,7 +20,7 @@ export class WhatsAppWebhookService {
     if (!rawMsg) return;
 
     try {
-      console.log(`[ZLAI-AUDIT] >>> EXECUTANDO VERSÃO v3.1.5 - FIX CENTAVOS ATIVO <<<`);
+      console.log(`[parser-v4.1] WEBHOOK_ENTRY: ${JSON.stringify(payload)}`);
       const user = await UserResolutionService.resolve(rawMsg.from);
       
       let incomingText = rawMsg.text || "";
