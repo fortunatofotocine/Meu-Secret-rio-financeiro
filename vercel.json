@@ -13,7 +13,8 @@
     }
   ],
   "env": {
-    "ZLAI_DEPLOY_VERSION": "4.1.2",
-    "FORCE_REBUILD": "2026-04-03-21-25"
+    "ZLAI_DEPLOY_VERSION": "4.1.4",
+    "FORCE_REBUILD": "2026-04-03-22-40"
   }
 }
+塑造
