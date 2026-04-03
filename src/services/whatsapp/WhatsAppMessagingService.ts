@@ -9,8 +9,9 @@ export class WhatsAppMessagingService {
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!accessToken || !phoneNumberId) {
-      console.error(`[WhatsAppMessaging] Missing configuration. Token: ${!!accessToken}, ID: ${!!phoneNumberId}`);
-      throw new Error("Missing WhatsApp API configuration.");
+      const errorMsg = `Missing Config: Token=${!!accessToken}, PhoneId=${!!phoneNumberId}, Verify=${!!process.env.WHATSAPP_VERIFY_TOKEN}`;
+      console.error(`[WhatsAppMessaging] ${errorMsg}`);
+      throw new Error(errorMsg);
     }
 
     // WhatsApp expects numbers without '+' and specialized formatting
