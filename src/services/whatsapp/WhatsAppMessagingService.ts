@@ -8,6 +8,8 @@ export class WhatsAppMessagingService {
     const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
+    console.log(`[WhatsAppMessaging] Attempting send (v2.8.9-final-v2). Config state: T=${!!accessToken}, P=${!!phoneNumberId}`);
+
     if (!accessToken || !phoneNumberId) {
       const errorMsg = `Missing Config: Token=${!!accessToken}, PhoneId=${!!phoneNumberId}, Verify=${!!process.env.WHATSAPP_VERIFY_TOKEN}`;
       console.error(`[WhatsAppMessaging] ${errorMsg}`);
