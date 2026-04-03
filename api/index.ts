@@ -1,6 +1,6 @@
 import express from "express";
-import { WhatsAppWebhookService } from "../src/services/whatsapp/WhatsAppWebhookService.ts";
-import { ReminderWorkerService } from "../src/services/whatsapp/ReminderWorkerService.ts";
+import { WhatsAppWebhookService } from "../src/services/whatsapp/WhatsAppWebhookService";
+import { ReminderWorkerService } from "../src/services/whatsapp/ReminderWorkerService";
 
 const app = express();
 app.use(express.json());
@@ -9,7 +9,7 @@ app.use(express.json());
 app.get(["/api/health", "/health", "/api"], (req, res) => {
   res.json({ 
     status: "ok", 
-    version: "4.1.4 [parser-v4.1] - ABSOLUTE SYNC ACTIVE", 
+    version: "4.1.5 [parser-v4.1] - BUILD FIX ACTIVE", 
     timestamp: new Date().toISOString() 
   });
 });
@@ -56,5 +56,5 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
 });
 
 export default app;
-// v4.1.4 - INFRASTRUCTURE FIX
+// v4.1.5 - BUILD FIX
 塑造
