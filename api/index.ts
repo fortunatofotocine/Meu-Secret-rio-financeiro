@@ -9,7 +9,7 @@ app.use(express.json());
 app.get(["/api/health", "/health", "/api"], (req, res) => {
   res.json({ 
     status: "ok", 
-    version: "4.1.0 [parser-v4.1] - UNIFIED PARSING ACTIVE", 
+    version: "4.1.2 [parser-v4.1] - ABSOLUTE SYNC ACTIVE", 
     timestamp: new Date().toISOString() 
   });
 });
@@ -56,4 +56,5 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
 });
 
 export default app;
-// v4.1.0 - UNIFIED PARSING FIX
+// v4.1.2 - ABSOLUTE SYNC
+塑造
