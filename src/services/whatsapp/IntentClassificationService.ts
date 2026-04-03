@@ -60,7 +60,8 @@ export class IntentClassificationService {
  
     // --- TRANSAÇÕES RÁPIDAS (EX: "GASTEI 50...") ---
     // Matches: 50 | 50,00 | 50.00 | 1.500,00 | 1,500.00
-    const amountMatch = cleanText.match(/(?:gastei|recebi|paguei|vendi|ganhei|foi|gastamos)\s+(?:r\$?\s?)?(\d+(?:[.,]\d+)*)/i);
+    // Matches: 50 | 50,00 | 50.00 | 1.500,00 | 1,500.00 | R$ 15,70
+    const amountMatch = cleanText.match(/(?:gastei|recebi|paguei|vendi|ganhei|foi|gastamos)\s*(?:r\$?\s?)?\s*(\d+(?:[.,]\d+)*)/i);
     if (amountMatch) {
         const intent = (cleanText.includes("recebi") || cleanText.includes("ganhei") || cleanText.includes("vendi")) ? "registrar_receita" : "registrar_gasto";
         

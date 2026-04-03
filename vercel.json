@@ -11,5 +11,9 @@
       "path": "/api/cron-reminders",
       "schedule": "* * * * *"
     }
-  ]
+  ],
+  "env": {
+    "ZLAI_DEPLOY_VERSION": "3.1.5",
+    "FORCE_REBUILD": "2026-04-03-12-42"
+  }
 }
