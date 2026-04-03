@@ -1,9 +1,4 @@
 import axios from "axios";
-import * as dotenv from "dotenv";
-
-dotenv.config();
-
-
 
 export class WhatsAppMessagingService {
   /**
@@ -14,7 +9,7 @@ export class WhatsAppMessagingService {
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!accessToken || !phoneNumberId) {
-      console.error("[WhatsAppMessaging] Missing API configuration.");
+      console.error(`[WhatsAppMessaging] Missing configuration. Token: ${!!accessToken}, ID: ${!!phoneNumberId}`);
       throw new Error("Missing WhatsApp API configuration.");
     }
 

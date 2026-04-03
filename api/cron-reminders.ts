@@ -1,7 +1,4 @@
 import { ReminderWorkerService } from "../src/services/whatsapp/ReminderWorkerService.js";
-import * as dotenv from "dotenv";
-
-dotenv.config();
 
 /**
  * ISOLATED CRON ENDPOINT: /api/cron/process-reminders
