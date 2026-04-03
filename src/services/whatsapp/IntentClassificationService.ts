@@ -57,37 +57,42 @@ export class IntentClassificationService {
         };
       }
     }
+  }
  
-    // --- TRANSAÇÕES RÁPIDAS (EX: "GASTEI 50...") ---
+  /**
+   * Unified logic for BR/US decimal parsing [parser-v4.1]
+   */
+  static parseBrazilianValue(amountRaw: string): number {
+    console.log(`[parser-v4.1] parseBrazilianValue input: "${amountRaw}"`);
+    let clean = amountRaw;
+    
+    // 1. Handle mixed separators (1.500,00 or 1,500.00)
+    if (clean.includes(',') && clean.includes('.')) {
+      if (clean.lastIndexOf(',') > clean.lastIndexOf('.')) {
+        // BR Format: 1.500,00 -> 1500.00
+        clean = clean.replace(/\./g, '').replace(',', '.');
+      } else {
+        // US Format: 1,500.00 -> 1500.00
+        clean = clean.replace(/,/g, '');
+      }
+    } else if (clean.includes(',')) {
+      // Pure BR Format: 15,70 -> 15.70
+      clean = clean.replace(',', '.');
+    }
+    
+    const finalValue = parseFloat(clean);
+    console.log(`[parser-v4.1] parseBrazilianValue output: ${finalValue}`);
+    return finalValue;
+  }
+
+  // --- TRANSAÇÕES RÁPIDAS (EX: "GASTEI 50...") ---
     // Matches: 50 | 50,00 | 50.00 | 1.500,00 | 1,500.00 | R$ 15,70
     console.log(`[parser-v4] raw_text: "${text}"`);
     const amountMatch = cleanText.match(/(?:gastei|recebi|paguei|vendi|ganhei|foi|gastamos)\s*(?:r\$?\s?)?\s*(\d+(?:[.,]\d+)*)/i);
     
-    if (amountMatch) {
-        console.log(`[parser-v4] extracted_amount: "${amountMatch[1]}"`);
-        const intent = (cleanText.includes("recebi") || cleanText.includes("ganhei") || cleanText.includes("vendi")) ? "registrar_receita" : "registrar_gasto";
-        
-        let amountRaw = amountMatch[1];
-        
-        // ROBUST BR PARSING LOGIC [parser-v4]
-        // 1. Remove any thousand separators (dots followed by 3 digits BEFORE a comma)
-        // 2. Identify if it's BR format (comma as decimal) or US (dot as decimal)
-        
-        if (amountRaw.includes(',') && amountRaw.includes('.')) {
-          if (amountRaw.lastIndexOf(',') > amountRaw.lastIndexOf('.')) {
-            // BR Format: 1.500,00 -> 1500.00
-            amountRaw = amountRaw.replace(/\./g, '').replace(',', '.');
-          } else {
-            // US Format: 1,500.00 -> 1500.00
-            amountRaw = amountRaw.replace(/,/g, '');
-          }
-        } else if (amountRaw.includes(',')) {
-          // Pure BR Format: 15,70 -> 15.70
-          amountRaw = amountRaw.replace(',', '.');
         }
 
-        const amount = parseFloat(amountRaw);
-        console.log(`[parser-v4] normalized_amount: ${amount}`);
+        const amount = this.parseBrazilianValue(amountRaw);
 
         const description = rawText.replace(amountMatch[0], "")
             .replace(/\b(zlai|zelai|zela|zelá|zlâ|zé lá|ze la|zila|zelly|zeli|zé|ze|no|na|com|de|da|do|um|uma|reais|ai|oi|ola|olá|anota|registra|por\s+favor|eu|me|meu|minha)\b/gi, "")

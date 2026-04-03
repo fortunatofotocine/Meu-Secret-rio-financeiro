@@ -368,7 +368,7 @@ export class FinancialCommandService {
     const amountMatch = input.match(/(\d+([.,]\d{2})?)/);
     
     if (amountMatch) {
-      newAmount = parseFloat(amountMatch[0].replace(',', '.'));
+      newAmount = IntentClassificationService.parseBrazilianValue(amountMatch[0]);
       // Remove the amount from the text to get the remaining as description
       const remainingText = input.replace(amountMatch[0], "").trim();
       if (remainingText) {
