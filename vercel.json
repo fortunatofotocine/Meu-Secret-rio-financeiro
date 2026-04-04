@@ -9,7 +9,7 @@
   "crons": [
     {
       "path": "/api/cron-reminders",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     }
   ],
   "env": {
