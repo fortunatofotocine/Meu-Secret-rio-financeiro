@@ -11,8 +11,12 @@ export default defineConfig(({ mode }) => {
       react(), 
       tailwindcss(),
       VitePWA({
-        registerType: 'prompt',
+        registerType: 'autoUpdate',
         injectRegister: 'inline',
+        workbox: {
+          clientsClaim: true,
+          skipWaiting: true
+        },
         devOptions: {
           enabled: true
         },

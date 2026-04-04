@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, type Transaction } from '../lib/supabase';
-import { Plus, Search, Download, ArrowUpRight, ArrowDownRight, Trash2, Edit2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { Plus, Search, Download, ArrowUpRight, ArrowDownRight, Trash2, Edit2, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { cn } from '../lib/utils';
 import TransactionModal from '../components/TransactionModal';
 import { jsPDF } from 'jspdf';
@@ -15,6 +16,11 @@ export default function Financeiro() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  const handlePrevMonth = () => setSelectedDate(prev => subMonths(prev, 1));
+  const handleNextMonth = () => setSelectedDate(prev => addMonths(prev, 1));
 
   useEffect(() => {
     fetchTransactions();
@@ -38,8 +44,6 @@ export default function Financeiro() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Tem certeza que deseja excluir esta transação?')) return;
-
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
@@ -54,6 +58,7 @@ export default function Financeiro() {
     } else {
       alert('Erro ao excluir transação.');
     }
+    setTransactionToDelete(null);
   }
 
   function handleEdit(transaction: Transaction) {
@@ -67,10 +72,15 @@ export default function Financeiro() {
   }
 
   const filteredTransactions = transactions.filter(t => {
+    // Ajustar pelo mês de exibição
+    const d = new Date(t.date);
+    const matchesMonth = d.getFullYear() === selectedDate.getFullYear() && d.getMonth() === selectedDate.getMonth();
+
     const matchesSearch = t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       t.category.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = filterType === 'all' || t.type === filterType;
-    return matchesSearch && matchesType;
+
+    return matchesMonth && matchesSearch && matchesType;
   });
 
   function handleExportCSV() {
@@ -159,13 +169,38 @@ export default function Financeiro() {
           <h2 className="text-2xl font-bold text-slate-800">Financeiro</h2>
           <p className="text-slate-500">Gerencie suas entradas e saídas.</p>
         </div>
-        <button
-          onClick={handleAdd}
-          className="bg-zlai-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-orange-600 transition-all shadow-lg shadow-orange-100"
-        >
-          <Plus className="w-5 h-5" />
-          Novo Lançamento
-        </button>
+        
+        <div className="flex flex-col sm:flex-row gap-4 items-center">
+          {/* Navegação de Mês */}
+          <div className="flex items-center justify-between bg-white p-1 rounded-2xl border border-slate-200 shadow-sm w-full sm:w-auto">
+            <button
+              onClick={handlePrevMonth}
+              className="p-2 hover:bg-orange-50 rounded-xl text-slate-400 hover:text-zlai-primary transition-all flex items-center justify-center shrink-0"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2 px-2 sm:px-4">
+              <Calendar className="w-4 h-4 text-zlai-primary" />
+              <span className="font-bold text-slate-700 capitalize tracking-wide text-sm">
+                {format(selectedDate, "MMMM yyyy", { locale: ptBR })}
+              </span>
+            </div>
+            <button
+              onClick={handleNextMonth}
+              className="p-2 hover:bg-orange-50 rounded-xl text-slate-400 hover:text-zlai-primary transition-all flex items-center justify-center shrink-0"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+
+          <button
+            onClick={handleAdd}
+            className="w-full sm:w-auto bg-zlai-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-orange-600 transition-all shadow-lg shadow-orange-100"
+          >
+            <Plus className="w-5 h-5" />
+            Novo Lançamento
+          </button>
+        </div>
       </div>
 
       {/* Filters & Search */}
@@ -301,7 +336,7 @@ export default function Financeiro() {
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDelete(t.id)}
+                          onClick={() => setTransactionToDelete(t.id)}
                           className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -363,7 +398,7 @@ export default function Financeiro() {
                     Editar
                   </button>
                   <button
-                    onClick={() => handleDelete(t.id)}
+                    onClick={() => setTransactionToDelete(t.id)}
                     className="flex-1 py-2.5 bg-slate-50 text-slate-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-100 active:bg-rose-50 active:text-rose-600 active:border-rose-100 transition-all"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -386,6 +421,33 @@ export default function Financeiro() {
         onSave={fetchTransactions}
         transaction={editingTransaction}
       />
+
+      {/* Delete Confirmation Modal */}
+      {transactionToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 animate-in fade-in zoom-in duration-200">
+            <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center mb-4">
+              <Trash2 className="w-6 h-6 text-rose-500" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Excluir Transação</h3>
+            <p className="text-slate-500 mb-6 font-medium">Tem certeza que deseja excluir esta transação? Essa ação não pode ser desfeita.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setTransactionToDelete(null)}
+                className="flex-1 py-3 rounded-2xl font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 transition-all border border-slate-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleDelete(transactionToDelete)}
+                className="flex-1 py-3 rounded-2xl font-bold text-white bg-rose-500 hover:bg-rose-600 transition-all shadow-lg shadow-rose-200"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ export default function DespesasFixas() {
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingExpense, setEditingExpense] = useState<FixedExpense | null>(null);
+    const [ruleToDelete, setRuleToDelete] = useState<string | null>(null);
 
     useEffect(() => {
         fetchExpenses();
@@ -124,9 +125,11 @@ export default function DespesasFixas() {
     }
 
     async function handleDelete(id: string) {
-        if (!confirm('Excluir esta despesa fixa?')) return;
         const { error } = await supabase.from('fixed_expenses').delete().eq('id', id);
-        if (!error) fetchExpenses();
+        if (!error) {
+            fetchExpenses();
+        }
+        setRuleToDelete(null);
     }
 
     function handleEdit(expense: FixedExpense) {
@@ -271,7 +274,7 @@ export default function DespesasFixas() {
                                                         <Edit2 className="w-4 h-4" />
                                                     </button>
                                                     <button
-                                                        onClick={() => handleDelete(rule.id)}
+                                                        onClick={() => setRuleToDelete(rule.id)}
                                                         className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -356,7 +359,7 @@ export default function DespesasFixas() {
                                             Editar
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(rule.id)}
+                                            onClick={() => setRuleToDelete(rule.id)}
                                             className="flex-1 py-2.5 bg-slate-50 text-slate-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-100 active:bg-rose-50 active:text-rose-600 active:border-rose-100 transition-all"
                                         >
                                             <Trash2 className="w-3.5 h-3.5" />
@@ -380,6 +383,33 @@ export default function DespesasFixas() {
                 onSave={fetchExpenses}
                 expense={editingExpense}
             />
+
+            {/* Delete Confirmation Modal */}
+            {ruleToDelete && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                    <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 animate-in fade-in zoom-in duration-200">
+                        <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center mb-4">
+                            <Trash2 className="w-6 h-6 text-rose-500" />
+                        </div>
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">Excluir Regra Diária/Fixa</h3>
+                        <p className="text-slate-500 mb-6 font-medium">Tem certeza que deseja excluir esta regra? Todos os lançamentos futuros vinculados a ela serão cancelados.</p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setRuleToDelete(null)}
+                                className="flex-1 py-3 rounded-2xl font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 transition-all border border-slate-200"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => handleDelete(ruleToDelete)}
+                                className="flex-1 py-3 rounded-2xl font-bold text-white bg-rose-500 hover:bg-rose-600 transition-all shadow-lg shadow-rose-200"
+                            >
+                                Excluir
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
