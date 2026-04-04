@@ -1,6 +1,6 @@
 import express from "express";
-import { WhatsAppWebhookService } from "../src/services/whatsapp/WhatsAppWebhookService";
-import { ReminderWorkerService } from "../src/services/whatsapp/ReminderWorkerService";
+import { WhatsAppWebhookService } from "../src/services/whatsapp/WhatsAppWebhookService.js";
+import { ReminderWorkerService } from "../src/services/whatsapp/ReminderWorkerService.js";
 
 const app = express();
 app.use(express.json());
