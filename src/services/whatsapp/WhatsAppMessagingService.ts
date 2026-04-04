@@ -6,7 +6,7 @@ export class WhatsAppMessagingService {
    */
   static async sendMessage(to: string, text: string): Promise<any> {
     const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID;
 
     console.log(`[WhatsAppMessaging] Attempting send (v2.8.9-final-v2). Config state: T=${!!accessToken}, P=${!!phoneNumberId}`);
 
