@@ -9,7 +9,7 @@ app.use(express.json());
 app.get(["/api/health", "/health", "/api"], (req, res) => {
   res.json({ 
     status: "ok", 
-    version: "4.1.5 [parser-v4.1] - BUILD FIX ACTIVE", 
+    version: "4.2.0 [parser-v4.1] - SOLUÇÃO CONCRETA", 
     timestamp: new Date().toISOString() 
   });
 });
@@ -56,5 +56,5 @@ app.post(["/api/whatsapp/webhook", "/whatsapp/webhook"], async (req, res) => {
 });
 
 export default app;
-// v4.1.5 - BUILD FIX
+// v4.2.0 - CONCRETE INFRASTRUCTURE FIX
 塑造
